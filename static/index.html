@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>thewittyswan terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+  <style>
+    body {
+      margin: 0;
+      background: #0d0d0d;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Courier New", monospace;
+    }
+
+    .terminal-window {
+      width: 90%;
+      max-width: 900px;
+      height: 75vh;
+      background: #111214;
+      border-radius: 10px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #2a2a2e;
+    }
+
+    .titlebar {
+      background: #1c1d20;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #2a2a2e;
+    }
+
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot.red { background: #ff5f56; }
+    .dot.yellow { background: #ffbd2e; }
+    .dot.green { background: #27c93f; }
+
+    .titlebar-label {
+      flex: 1;
+      text-align: center;
+      color: #8a8a8f;
+      font-size: 13px;
+      margin-right: 60px;
+    }
+
+    #terminal {
+      flex: 1;
+      padding: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="terminal-window">
+    <div class="titlebar">
+      <span class="dot red"></span>
+      <span class="dot yellow"></span>
+      <span class="dot green"></span>
+      <span class="titlebar-label">swan@thewittyswan — terminal</span>
+    </div>
+    <div id="terminal"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script>
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: "Courier New, monospace",
+      fontSize: 15,
+      theme: {
+        background: "#111214",
+        foreground: "#d8d8dc",
+        cursor: "#e0c9a6"
+      }
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById("terminal"));
+    fitAddon.fit();
+    window.addEventListener("resize", () => fitAddon.fit());
+
+    const prompt = "swan@thewittyswan:~$ ";
+    let currentLine = "";
+
+    function writePrompt() {
+      term.write("\r\n" + prompt);
+    }
+
+    term.write("thewittyswan terminal — type 'help' to begin");
+    writePrompt();
+
+    term.onKey(async (e) => {
+      const ev = e.domEvent;
+      const key = ev.key;
+
+      if (key === "Enter") {
+        term.write("\r\n");
+        const command = currentLine.trim();
+        currentLine = "";
+
+        if (command.length > 0) {
+          try {
+            const res = await fetch("/run", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ command })
+            });
+            const data = await res.text();
+            term.write(data.replace(/\n/g, "\r\n"));
+          } catch (err) {
+            term.write("error: could not reach server");
+          }
+        }
+        writePrompt();
+      } else if (key === "Backspace") {
+        if (currentLine.length > 0) {
+          currentLine = currentLine.slice(0, -1);
+          term.write("\b \b");
+        }
+      } else if (ev.key.length === 1) {
+        currentLine += key;
+        term.write(key);
+      }
+    });
+  </script>
+</body>
+</html>
