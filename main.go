@@ -14,7 +14,16 @@ type CommandRequest struct {
 func main() {
     startBlogSync()
 
-    http.Handle("/", http.FileServer(http.Dir("./static")))
+    fs := http.FileServer(http.Dir("./static"))
+    http.Handle("/static/", http.StripPrefix("/static/", fs))
+
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        http.ServeFile(w, r, "./static/index.html")
+    })
+
+    http.HandleFunc("/terminal", func(w http.ResponseWriter, r *http.Request) {
+        http.ServeFile(w, r, "./static/index.html")
+    })
 
     http.HandleFunc("/run", func(w http.ResponseWriter, r *http.Request) {
         var req CommandRequest
