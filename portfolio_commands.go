@@ -173,6 +173,23 @@ func handleContact() string {
 	return strings.Join(lines, "\n")
 }
 
+func handleAchievements() string {
+	p := getPortfolio()
+
+	if len(p.Achievements) == 0 {
+		return "achievements data not loaded yet"
+	}
+
+	var lines []string
+	for _, a := range p.Achievements {
+		lines = append(lines,
+			fmt.Sprintf("%s (%s)\n%s\n", a.Title, a.Year, a.Description),
+		)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func handleEducation() string {
 	p := getPortfolio()
 	if len(p.Education) == 0 {
@@ -214,7 +231,7 @@ func handleHelp() string {
 		line(),
 		"",
 		"PROFILE",
-		row("about", "education", "experience"),
+		row("about", "education", "experience", "achievements"),
 		"",
 		"CAREER",
 		row("resume", "skills", "contact", "timeline"),

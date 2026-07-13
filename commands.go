@@ -57,6 +57,9 @@ func runCommand(input string) string {
     case "timeline":
         return handleTimeline()
 
+    case "achievements":
+	    return handleAchievements()
+        
     case "ls":
         return handleLs(args)
 

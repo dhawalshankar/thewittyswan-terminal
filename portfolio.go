@@ -69,6 +69,12 @@ type TimelineEntry struct {
 	Event string `json:"event"`
 }
 
+type Achievement struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Year        string `json:"year"`
+}
+
 type Resume struct {
 	Summary string `json:"summary"`
 	PDFURL  string `json:"pdf_url"`
@@ -83,6 +89,7 @@ type Portfolio struct {
     Contact    Contact         `json:"contact"`
     Profiles   Profiles        `json:"profiles"`
     Timeline   []TimelineEntry `json:"timeline"`
+	Achievements []Achievement `json:"achievements"`
     Resume     Resume          `json:"resume"`
 }
 
