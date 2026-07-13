@@ -1,24 +1,39 @@
+<!-- thewittyswan terminal -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0d">
   <title>thewittyswan terminal</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
   <style>
-    body {
+    * { box-sizing: border-box; }
+
+    html, body {
       margin: 0;
+      padding: 0;
+      height: 100%;
       background: #0d0d0d;
-      height: 100vh;
+      font-family: "Courier New", monospace;
+      /* prevent iOS rubber-band scroll + pinch zoom messing with layout */
+      overscroll-behavior: none;
+      touch-action: manipulation;
+    }
+
+    body {
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: "Courier New", monospace;
+      /* dvh accounts for mobile browser chrome (address bar) better than vh */
+      height: 100dvh;
+      padding: 0;
     }
 
     .terminal-window {
       width: 90%;
       max-width: 900px;
-      height: 75vh;
+      height: 75dvh;
       background: #111214;
       border-radius: 10px;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
@@ -35,9 +50,10 @@
       align-items: center;
       gap: 8px;
       border-bottom: 1px solid #2a2a2e;
+      flex-shrink: 0;
     }
 
-    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
     .dot.red { background: #ff5f56; }
     .dot.yellow { background: #ffbd2e; }
     .dot.green { background: #27c93f; }
@@ -48,16 +64,42 @@
       color: #8a8a8f;
       font-size: 13px;
       margin-right: 60px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     #terminal {
       flex: 1;
       padding: 12px;
+      min-height: 0; /* required so xterm's internal sizing doesn't overflow flex parent */
+    }
+
+    /* full-bleed on small screens: real terminal apps don't float in a card on mobile */
+    @media (max-width: 640px) {
+      body {
+        height: 100dvh;
+        padding: 0;
+      }
+      .terminal-window {
+        width: 100%;
+        max-width: none;
+        height: 100dvh;
+        border-radius: 0;
+        border: none;
+      }
+      .titlebar-label {
+        margin-right: 0;
+        font-size: 12px;
+      }
+      #terminal {
+        padding: 8px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="terminal-window">
+  <div class="terminal-window" id="terminalWindow">
     <div class="titlebar">
       <span class="dot red"></span>
       <span class="dot yellow"></span>
@@ -70,64 +112,224 @@
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script>
+    // Smaller base font on narrow screens so more columns fit; xterm recalculates via fitAddon anyway.
+    const isSmallScreen = window.innerWidth < 640;
+
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: "Courier New, monospace",
-      fontSize: 15,
+      fontSize: isSmallScreen ? 13 : 15,
       theme: {
         background: "#111214",
         foreground: "#d8d8dc",
         cursor: "#e0c9a6"
-      }
+      },
+      // Helps some mobile browsers handle text rendering/selection better
+      scrollback: 2000,
     });
 
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(document.getElementById("terminal"));
     fitAddon.fit();
-    window.addEventListener("resize", () => fitAddon.fit());
+
+    // Resize handling: debounce so mobile keyboard show/hide doesn't cause
+    // a resize thrash, and re-fit on orientation change.
+    let resizeTimeout;
+    function handleResize() {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        try { fitAddon.fit(); } catch (e) {}
+      }, 100);
+    }
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+    // Visual Viewport API fires reliably when the mobile keyboard opens/closes
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleResize);
+    }
+
+    // xterm creates an internal hidden textarea for input capture.
+    // Tapping anywhere on the terminal should focus it so the mobile
+    // keyboard opens — this doesn't always happen automatically on iOS.
+    document.getElementById("terminal").addEventListener("touchend", () => {
+      term.focus();
+    });
 
     const prompt = "swan@thewittyswan:~$ ";
     let currentLine = "";
+    let busy = false;
+
+    // Command history
+    const history = [];
+    let historyIndex = -1; // -1 means "not currently browsing history"
 
     function writePrompt() {
       term.write("\r\n" + prompt);
     }
+    function showBanner() {
+          term.writeln("");
+          term.writeln(center("TheWittySwan"));
+          term.writeln(center("Interactive Portfolio Terminal"));
+          term.writeln("");
+          term.writeln(center("Dhawal Shukla"));
+          term.writeln("");
+          term.writeln(center("Backend Engineering • Network Security • Cloud"));
+          term.writeln("");
+          term.writeln(center("Type 'help' to explore."));
+          term.writeln("");
+      }
+    function center(text) {
+      const cols = term.cols;
+      const padding = Math.max(0, Math.floor((cols - text.length) / 2));
+      return " ".repeat(padding) + text;
+    }
+    function clearCurrentLine() {
+      // erase what's currently typed on screen (backspace + space + backspace per char)
+      term.write("\b \b".repeat(currentLine.length));
+    }
 
-    term.write("Welcome to Dhawal's powershell. Type help to unveil his shell's hidden power.");
+    function navigateHistory(direction) {
+      if (history.length === 0) return;
+
+      if (direction === -1) { // Up
+        if (historyIndex === -1) {
+          historyIndex = history.length - 1;
+        } else if (historyIndex > 0) {
+          historyIndex--;
+        } else {
+          return; // already at oldest
+        }
+      } else { // Down
+        if (historyIndex === -1) return; // nothing to go "down" to
+        if (historyIndex < history.length - 1) {
+          historyIndex++;
+        } else {
+          historyIndex = -1; // back to a blank line
+        }
+      }
+
+      clearCurrentLine();
+      currentLine = historyIndex === -1 ? "" : history[historyIndex];
+      term.write(currentLine);
+    }
+
+    showBanner();
     writePrompt();
+    term.focus();
 
-    term.onKey(async (e) => {
-      const ev = e.domEvent;
-      const key = ev.key;
+    // onData (not onKey) fires after the browser/OS has resolved the actual
+    // character — this correctly handles mobile autocorrect, predictive
+    // text, and IME composition, AND is what actually receives pasted text
+    // (onKey never fired for paste at all, since browsers don't emit
+    // per-character keydown events for pasted content — that's why paste
+    // silently failed before).
+    term.onData(async (data) => {
+      if (busy) return; // ignore input while a command is in flight
 
-      if (key === "Enter") {
-        term.write("\r\n");
-        const command = currentLine.trim();
-        currentLine = "";
+      let i = 0;
+      while (i < data.length) {
+        const char = data[i];
+        const code = char.charCodeAt(0);
 
-        if (command.length > 0) {
+        // Arrow keys arrive as a 3-byte escape sequence: ESC [ A/B/C/D.
+        // We must consume all 3 bytes together — otherwise the leftover
+        // '[' and letter get typed as literal garbage into the line,
+        // which is exactly the corruption you were seeing.
+        if (code === 27 && data[i + 1] === "[") {
+          const seq = data[i + 2];
+          if (seq === "A") navigateHistory(-1);      // Up
+          else if (seq === "B") navigateHistory(1);   // Down
+          // Left/Right (C/D) intentionally not handled yet — cursor is
+          // always assumed to be at end of line for now.
+          i += 3;
+          continue;
+        }
+
+        if (char === "\r") { // Enter
+          const command = currentLine.trim();
+
+          // Move to next line
+          term.write("\r\n");
+
+          // Reset current input state
+          currentLine = "";
+          historyIndex = -1;
+
+          // Save to history (avoid duplicate consecutive entries)
+          if (command.length > 0 && history[history.length - 1] !== command) {
+            history.push(command);
+          }
+
+          // -----------------------------
+          // Frontend-only commands
+          // -----------------------------
+
+          if (command === "clear") {
+            term.clear();
+            showBanner();
+            writePrompt();
+            return;
+          }
+
+          if (command === "history") {
+            if (history.length === 0) {
+              term.writeln("No commands in history.");
+            } else {
+              history.forEach((cmd, idx) => {
+                term.writeln(`${idx + 1}  ${cmd}`);
+              });
+            }
+            writePrompt();
+            return;
+          }
+
+          // Empty command
+          if (command.length === 0) {
+            writePrompt();
+            return;
+          }
+
+          // -----------------------------
+          // Backend commands
+          // -----------------------------
+
+          busy = true;
+
           try {
             const res = await fetch("/run", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ command })
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                command
+              })
             });
-            const data = await res.text();
-            term.write(data.replace(/\n/g, "\r\n"));
+
+            const text = await res.text();
+            term.write(text.replace(/\n/g, "\r\n"));
           } catch (err) {
             term.write("error: could not reach server");
           }
+
+          busy = false;
+          writePrompt();
+        } else if (char === "\b" || code === 127) {
+          if (currentLine.length > 0) {
+            currentLine = currentLine.slice(0, -1);
+            term.write("\b \b");
+          }
+
+        } else if (code < 32) {
+          // ignore other control characters (Tab, etc.)
+
+        } else {
+          currentLine += char;
+          term.write(char);
         }
-        writePrompt();
-      } else if (key === "Backspace") {
-        if (currentLine.length > 0) {
-          currentLine = currentLine.slice(0, -1);
-          term.write("\b \b");
-        }
-      } else if (ev.key.length === 1) {
-        currentLine += key;
-        term.write(key);
+
+        i += 1;
       }
     });
   </script>

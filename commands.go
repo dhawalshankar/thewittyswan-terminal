@@ -1,3 +1,4 @@
+// commands.go
 package main
 
 import (
@@ -21,10 +22,40 @@ func runCommand(input string) string {
 
     switch cmd {
     case "help":
-        return "available commands: help, whoami, ls, cat, grep, refresh, headers, tls, dig, ping"
+        return handleHelp()
 
     case "whoami":
-        return "thewittyswan terminal — network security & literature, self-hosted on a free GCP VM"
+        return handleWhoAmi()
+
+    case "about":
+    return handleAbout()
+
+    case "resume":
+        return handleResume(args)
+
+    case "projects":
+        return handleProjects(args)
+
+    case "github":
+        return handleGithub(args)
+
+    case "leetcode":
+        return handleLeetcode(args)
+    
+    case "skills", "stack":
+        return handleSkills()
+
+    case "contact":
+        return handleContact()
+
+    case "education":
+        return handleEducation()
+
+    case "experience":
+        return handleExperience()
+
+    case "timeline":
+        return handleTimeline()
 
     case "ls":
         return handleLs(args)
@@ -118,7 +149,12 @@ func handleGrep(args []string) string {
 
 func handleRefresh() string {
     fetchPosts()
-    return fmt.Sprintf("blog synced — %d posts loaded", len(getPosts()))
+    fetchPortfolio()
+
+    return fmt.Sprintf(
+        "synced successfully\nblogs: %d\nportfolio: loaded",
+        len(getPosts()),
+    )
 }
 
 func handleHeaders(args []string) string {
