@@ -307,8 +307,8 @@ terminalEl.addEventListener("touchend", () => {
   if (!dragging && !resizing) term.focus();
 });
 
-// vfsPwdString, vfsMkdir, vfsTouch, vfsLs, vfsCd, vfsRm, vfsCatIfExists
-// are all defined in vfs.js, loaded before this file.
+// vfsPwdString, vfsMkdir, vfsTouch, vfsLs, vfsCd, vfsRm, vfsCatIfExists,
+// vfsWriteFile are all defined in vfs.js, loaded before this file.
 
 const prompt = () => `swan@thewittyswan:${vfsPwdString()}$ `;
 let currentLine = "";
@@ -318,6 +318,11 @@ let currentAbortController = null; // tracks the in-flight /run fetch, so Ctrl+C
 // Command history
 const history = [];
 let historyIndex = -1;
+
+// Line-editor state — non-null while `edit <file>` is active. When set,
+// onData routes all keystrokes into the line editor instead of the
+// normal command pipeline (see top of term.onData).
+let editMode = null; // null, or { filename, lines }
 
 // scrollTargetLine: buffer row where the current command's output began.
 // Always pinned to the TOP of the viewport — a fresh command's output
@@ -401,6 +406,40 @@ function normalizeInput(command) {
   return corrected.join(" ");
 }
 
+// -----------------------------------------------------------------
+// Redirect parsing for `echo <text> > file` / `echo <text> >> file`.
+// Returns null if the command isn't an echo-with-redirect, so plain
+// `echo hi` (no redirect) falls through to the plain-echo branch below.
+// -----------------------------------------------------------------
+function parseRedirect(command) {
+  const match = command.match(/^echo\s+(.*?)\s*(>>|>)\s*(\S+)\s*$/);
+  if (!match) return null;
+  let [, rawText, op, filename] = match;
+  rawText = rawText.trim();
+  if (
+    (rawText.startsWith('"') && rawText.endsWith('"')) ||
+    (rawText.startsWith("'") && rawText.endsWith("'"))
+  ) {
+    rawText = rawText.slice(1, -1);
+  }
+  return { text: rawText, append: op === ">>", filename };
+}
+
+// Commits or discards the in-progress `edit` session and returns to the
+// normal prompt.
+function finishEdit(save) {
+  if (save) {
+    const content = editMode.lines.join("\n");
+    vfsWriteFile(editMode.filename, content, false);
+    term.writeln(`\r\n"${editMode.filename}" saved (${editMode.lines.length} line${editMode.lines.length === 1 ? "" : "s"})`);
+  } else {
+    term.writeln("\r\nedit aborted");
+  }
+  editMode = null;
+  currentLine = "";
+  writePrompt();
+}
+
 showBanner();
 writePrompt();
 term.focus();
@@ -409,9 +448,14 @@ term.focus();
 // actual character — this correctly handles mobile autocorrect,
 // predictive text, IME composition, and pasted text.
 term.onData(async (data) => {
-  // Ctrl+C (\x03) — must work even while a command is in flight, so
-  // this check sits above the `busy` guard, not below it.
+  // Ctrl+C (\x03) — must work even while a command is in flight or an
+  // edit session is open, so this check sits above every other guard.
   if (data === "\x03") {
+    if (editMode) {
+      term.write("^C");
+      finishEdit(false);
+      return;
+    }
     if (busy && currentAbortController) {
       currentAbortController.abort();
     }
@@ -420,6 +464,46 @@ term.onData(async (data) => {
     historyIndex = -1;
     busy = false;
     writePrompt();
+    return;
+  }
+
+  // -------------------------------------------------------------
+  // Line-editor mode — `edit <file>` routes all keystrokes here
+  // instead of the normal command pipeline below, so history
+  // navigation, typo-fixing, and /run never see editor input.
+  // -------------------------------------------------------------
+  if (editMode) {
+    let i = 0;
+    while (i < data.length) {
+      const char = data[i];
+      const code = char.charCodeAt(0);
+
+      if (code === 4) { // Ctrl+D
+        finishEdit(true);
+        return;
+      }
+      if (char === "\r") {
+        term.write("\r\n");
+        if (currentLine === ".") {
+          finishEdit(true);
+          return;
+        }
+        editMode.lines.push(currentLine);
+        currentLine = "";
+        term.write("> ");
+      } else if (char === "\b" || code === 127) {
+        if (currentLine.length > 0) {
+          currentLine = currentLine.slice(0, -1);
+          term.write("\b \b");
+        }
+      } else if (code < 32) {
+        // ignore other control chars
+      } else {
+        currentLine += char;
+        term.write(char);
+      }
+      i += 1;
+    }
     return;
   }
 
@@ -490,6 +574,10 @@ term.onData(async (data) => {
       //   backend's blog-post `cat <slug>`
       // - "pwd" -> now vfs-only (backend's old cosmetic pwd is
       //   shadowed and can be removed from commands.go)
+      // - "echo <text> > file" / ">> file" -> vfs write/append;
+      //   plain "echo <text>" (no redirect) just prints the text
+      // - "edit <file>" -> opens the line-mode editor (see editMode
+      //   handling at the top of this listener)
       // -------------------------------------------------------------
       const parts = command.split(" ");
       const cmdName = parts[0];
@@ -532,6 +620,50 @@ term.onData(async (data) => {
       if (cmdName === "pwd") {
         term.writeln(vfsPwdString());
         writePrompt(outputStartLine);
+        return;
+      }
+
+      if (cmdName === "echo") {
+        const redirect = parseRedirect(command);
+        if (redirect) {
+          const out = vfsWriteFile(redirect.filename, redirect.text, redirect.append);
+          if (out) term.writeln(out);
+          writePrompt(outputStartLine);
+          return;
+        }
+        // plain echo, no redirect — just print the text back
+        term.writeln(cmdArgs.join(" ").replace(/^["']|["']$/g, ""));
+        writePrompt(outputStartLine);
+        return;
+      }
+
+      if (cmdName === "edit") {
+        const filename = cmdArgs.join(" ");
+        if (!filename) {
+          term.writeln("usage: edit <file>");
+          writePrompt(outputStartLine);
+          return;
+        }
+        const dir = resolveDir(vfs, cwd);
+        if (dir.children[filename] && dir.children[filename].type === "dir") {
+          term.writeln(`edit: ${filename}: is a directory`);
+          writePrompt(outputStartLine);
+          return;
+        }
+        const existing = dir.children[filename];
+        editMode = {
+          filename,
+          lines: existing && existing.content ? existing.content.split("\n") : [],
+        };
+        term.writeln(`-- editing ${filename} --`);
+        term.writeln("type your text, one line at a time");
+        term.writeln("finish with a line containing just '.' or Ctrl+D");
+        if (editMode.lines.length) {
+          term.writeln("--- existing content (new lines will be appended) ---");
+          editMode.lines.forEach(l => term.writeln(l));
+          term.writeln("---");
+        }
+        term.write("\r\n> ");
         return;
       }
 

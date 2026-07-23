@@ -93,3 +93,24 @@ function vfsCatIfExists(name) {
   if (f.type === "dir") return `cat: ${name}: is a directory`;
   return f.content.length > 0 ? f.content : "(empty file)";
 }
+
+// Overwrites (or appends to) a file's content. Creates the file if it
+// doesn't exist yet, same as touch would.
+function vfsWriteFile(name, content, append) {
+  if (!name) return "usage: echo <text> > <file>";
+  const dir = resolveDir(vfs, cwd);
+  if (dir.children[name] && dir.children[name].type === "dir") {
+    return `${name}: is a directory`;
+  }
+  if (!dir.children[name]) {
+    dir.children[name] = { type: "file", name, content: "" };
+  }
+  const file = dir.children[name];
+  if (append && file.content) {
+    file.content += "\n" + content;
+  } else {
+    file.content = content;
+  }
+  saveFS(vfs);
+  return "";
+}
