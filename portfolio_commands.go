@@ -7,18 +7,37 @@ import (
 	"strings"
 )
 
-func row(cols ...string) string {
-	const width = 18
-
-	var b strings.Builder
-	for _, c := range cols {
-		fmt.Fprintf(&b, "%-*s", width, c)
-	}
-	return b.String()
+func line() string {
+	return strings.Repeat("-", 62)
 }
 
-func line() string {
-	return strings.Repeat("-", 60)
+// cmdEntry is one row in the help output: the command syntax on the
+// left, a short description on the right.
+type cmdEntry struct {
+	syntax string
+	desc   string
+}
+
+// section renders a titled block of aligned command entries. Column
+// width is computed from the longest syntax string IN THAT SECTION,
+// not a fixed global width, so short sections (like SHELL) stay
+// compact and long sections (like NETWORK LAB) don't wrap or misalign.
+func section(title string, entries []cmdEntry) string {
+	maxLen := 0
+	for _, e := range entries {
+		if len(e.syntax) > maxLen {
+			maxLen = len(e.syntax)
+		}
+	}
+	width := maxLen + 3 // padding between syntax and description
+
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteString("\n")
+	for _, e := range entries {
+		fmt.Fprintf(&b, "  %-*s%s\n", width, e.syntax, e.desc)
+	}
+	return b.String()
 }
 
 func handleWhoAmi() string {
@@ -226,36 +245,85 @@ func handleTimeline() string {
 	return strings.Join(lines, "\n")
 }
 
+// handleHelp renders every command the terminal understands, grouped
+// by category, each section aligned to its own longest entry so
+// nothing wraps or drifts out of column regardless of how long an
+// individual command's syntax string is.
+//
+// Note: mkdir / touch / cd / rm / ls (no args) / pwd / echo redirects /
+// edit / clear / history are all handled client-side in terminal.js
+// (the virtual filesystem), never hitting runCommand here — they're
+// still listed below so `help` stays a complete reference either way.
 func handleHelp() string {
-	return strings.Join([]string{
-		line(),
-		"",
-		"PROFILE",
-		row("about", "education", "experience", "achievements"),
-		"",
-		"CAREER",
-		row("resume", "skills", "contact", "timeline"),
-		"",
-		"DEVELOPMENT",
-		row("projects", "github", "leetcode"),
-		"",
-		"NETSEC BLOGS",
-		row("ls netsec", "cat <slug>", "grep <term>"),
-		"",
-		"NETWORK LAB",
-		row("headers <host>", "tls <host>", "dig <host>", "ping <host>"),
-		row("curl <url>", "ports <host>"),
-		"",
-		"FILESYSTEM",
-		row("ls", "cd <dir>", "pwd", "mkdir <dir>"),
-		row("touch <file>", "cat <file>", "rm <name>"),
-		"",
-		"SHELL",
-		row("echo <text>", "date", "uname", "pwd", "uptime"),
-		"",
-		"SYSTEM",
-		row("help", "clear", "history", "refresh"),
-		"",
-		line(),
-	}, "\n")
+	var out []string
+	out = append(out, line(), "")
+
+	out = append(out, section("PROFILE", []cmdEntry{
+		{"about", "who I am, short bio"},
+		{"education", "degrees and institutions"},
+		{"experience", "work history"},
+		{"achievements", "awards, notable results"},
+	}))
+
+	out = append(out, section("CAREER", []cmdEntry{
+		{"resume", "resume summary"},
+		{"resume pdf", "get the resume PDF link"},
+		{"skills", "tech stack / skills list"},
+		{"contact", "email, socials, links"},
+		{"timeline", "career/education timeline"},
+	}))
+
+	out = append(out, section("DEVELOPMENT", []cmdEntry{
+		{"projects", "list all projects"},
+		{"projects <n>", "details on project n"},
+		{"github", "GitHub profile"},
+		{"leetcode", "LeetCode profile"},
+	}))
+
+	out = append(out, section("NETSEC BLOGS", []cmdEntry{
+		{"ls blog", "list all blog posts"},
+		{"ls <section>", "list posts in a section, e.g. ls netsec"},
+		{"cat <slug>", "read a blog post"},
+		{"grep <term>", "search blog posts by keyword"},
+	}))
+
+	out = append(out, section("NETWORK LAB", []cmdEntry{
+		{"headers <host>", "check security headers + cookie flags"},
+		{"tls <host>", "inspect TLS cert, protocol, cipher, expiry"},
+		{"dig <host>", "DNS records: A/AAAA, CNAME, MX, TXT"},
+		{"ping <host>", "TCP reachability check (not true ICMP)"},
+		{"curl <url>", "fetch a URL, show status + body preview"},
+		{"ports <host>", "scan common ports for open/closed"},
+		{"pkgcheck <eco> <pkg>", "check known CVEs for a package (npm/pip/go/cargo)"},
+	}))
+
+	out = append(out, section("FILESYSTEM (virtual, saved in your browser)", []cmdEntry{
+		{"ls", "list files/dirs in current directory"},
+		{"cd <dir>", "change directory (.. to go up, / for root)"},
+		{"pwd", "print working directory"},
+		{"mkdir <dir>", "create a directory"},
+		{"touch <file>", "create an empty file"},
+		{"cat <file>", "print a file's contents"},
+		{"edit <file>", "open the line editor (. or Ctrl+D to save)"},
+		{"echo <text> > f", "write text to a file (overwrite)"},
+		{"echo <text> >> f", "append text to a file"},
+		{"rm <name>", "delete a file or directory"},
+	}))
+
+	out = append(out, section("SHELL", []cmdEntry{
+		{"echo <text>", "print text back"},
+		{"date", "current date and time"},
+		{"uname", "system info"},
+		{"uptime", "server uptime"},
+	}))
+
+	out = append(out, section("SYSTEM", []cmdEntry{
+		{"help", "show this menu"},
+		{"clear", "clear the screen"},
+		{"history", "show command history"},
+		{"refresh", "resync blog posts + portfolio data"},
+	}))
+
+	out = append(out, line())
+	return strings.Join(out, "\n")
 }

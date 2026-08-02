@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -71,7 +72,18 @@ func sanitizeHost(input string) (string, error) {
 	return input, nil
 }
 
-func runCommand(input string) string {
+// runCommand is the single entry point every /run request goes through.
+// The recover() here is the OWASP A10 (Mishandling of Exceptional
+// Conditions) mitigation: if any individual handler panics (bad index,
+// nil deref, whatever), we catch it here and return an error string
+// instead of crashing the whole server process for every connected user.
+func runCommand(input string) (output string) {
+	defer func() {
+		if r := recover(); r != nil {
+			output = fmt.Sprintf("internal error handling command (recovered): %v", r)
+		}
+	}()
+
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return ""
@@ -150,6 +162,9 @@ func runCommand(input string) string {
 
 	case "ports":
 		return handlePorts(args)
+
+	case "pkgcheck":
+		return handlePkgCheck(args)
 
 	case "echo":
 		return handleEcho(args)
@@ -242,6 +257,13 @@ func handleRefresh() string {
 	)
 }
 
+// handleHeaders — extended for OWASP A02 (Security Misconfiguration).
+// On top of the original missing-header report, this now also flags:
+//   - Server/X-Powered-By header leaking software + version (info
+//     disclosure, helps an attacker fingerprint known CVEs for that
+//     exact version)
+//   - Set-Cookie flags: warns if Secure / HttpOnly / SameSite are
+//     absent on any cookie the response tries to set
 func handleHeaders(args []string) string {
 	if len(args) == 0 {
 		return "usage: headers <domain>"
@@ -278,9 +300,51 @@ func handleHeaders(args []string) string {
 			lines = append(lines, fmt.Sprintf("%-28s %s", h, v))
 		}
 	}
+
+	// --- info disclosure check ---
+	var disclosures []string
+	if s := resp.Header.Get("Server"); s != "" {
+		disclosures = append(disclosures, fmt.Sprintf("Server header reveals: %s", s))
+	}
+	if p := resp.Header.Get("X-Powered-By"); p != "" {
+		disclosures = append(disclosures, fmt.Sprintf("X-Powered-By reveals: %s", p))
+	}
+	if len(disclosures) > 0 {
+		lines = append(lines, "\ninfo disclosure:")
+		lines = append(lines, disclosures...)
+	}
+
+	// --- cookie flag check ---
+	if cookies := resp.Header.Values("Set-Cookie"); len(cookies) > 0 {
+		lines = append(lines, "\ncookie flags:")
+		for _, c := range cookies {
+			name := strings.SplitN(c, "=", 2)[0]
+			var missing []string
+			lower := strings.ToLower(c)
+			if !strings.Contains(lower, "secure") {
+				missing = append(missing, "Secure")
+			}
+			if !strings.Contains(lower, "httponly") {
+				missing = append(missing, "HttpOnly")
+			}
+			if !strings.Contains(lower, "samesite") {
+				missing = append(missing, "SameSite")
+			}
+			if len(missing) == 0 {
+				lines = append(lines, fmt.Sprintf("%-20s all flags present", name))
+			} else {
+				lines = append(lines, fmt.Sprintf("%-20s missing: %s", name, strings.Join(missing, ", ")))
+			}
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 
+// handleTLS — extended for OWASP A04 (Cryptographic Failures).
+// On top of the original cert/protocol report, this now also flags:
+//   - TLS 1.0 / 1.1 as deprecated protocols
+//   - Certificates expiring within 30 days
 func handleTLS(args []string) string {
 	if len(args) == 0 {
 		return "usage: tls <domain>"
@@ -334,16 +398,33 @@ func handleTLS(args []string) string {
 		tls.VersionTLS12: "TLS 1.2",
 		tls.VersionTLS13: "TLS 1.3",
 	}
+	version := res.conn.ConnectionState().Version
 
-	return fmt.Sprintf(
-		"domain:      %s\nissuer:      %s\nsubject:     %s\nvalid from:  %s\nvalid until: %s\nprotocol:    %s",
+	var warnings []string
+	if version == tls.VersionTLS10 || version == tls.VersionTLS11 {
+		warnings = append(warnings, fmt.Sprintf("WARNING: %s is deprecated, upgrade to TLS 1.2+", versionNames[version]))
+	}
+	daysLeft := int(time.Until(cert.NotAfter).Hours() / 24)
+	if daysLeft < 0 {
+		warnings = append(warnings, "WARNING: certificate has EXPIRED")
+	} else if daysLeft <= 30 {
+		warnings = append(warnings, fmt.Sprintf("WARNING: certificate expires in %d day(s)", daysLeft))
+	}
+
+	out := fmt.Sprintf(
+		"domain:      %s\nissuer:      %s\nsubject:     %s\nvalid from:  %s\nvalid until: %s\nprotocol:    %s\ncipher:      %s",
 		domain,
 		cert.Issuer.CommonName,
 		cert.Subject.CommonName,
 		cert.NotBefore.Format("2006-01-02"),
 		cert.NotAfter.Format("2006-01-02"),
-		versionNames[res.conn.ConnectionState().Version],
+		versionNames[version],
+		tls.CipherSuiteName(res.conn.ConnectionState().CipherSuite),
 	)
+	if len(warnings) > 0 {
+		out += "\n\n" + strings.Join(warnings, "\n")
+	}
+	return out
 }
 
 func handleDig(args []string) string {
@@ -524,6 +605,102 @@ func handlePorts(args []string) string {
 
 	header := fmt.Sprintf("Port scan (common ports only) — %s\n\n%-6s %-12s %s\n", host, "PORT", "SERVICE", "STATUS")
 	return header + strings.Join(lines, "\n")
+}
+
+// --- OWASP A03: Software Supply Chain Failures ---
+
+// osvQuery / osvResponse mirror the small subset of the OSV.dev API
+// response shape that we actually use. OSV.dev is free, no API key
+// required. Docs: https://google.github.io/osv.dev/api/
+type osvQuery struct {
+	Package osvPackage `json:"package"`
+}
+type osvPackage struct {
+	Name      string `json:"name"`
+	Ecosystem string `json:"ecosystem"`
+}
+type osvVuln struct {
+	ID      string `json:"id"`
+	Summary string `json:"summary"`
+}
+type osvResponse struct {
+	Vulns []osvVuln `json:"vulns"`
+}
+
+var supportedEcosystems = map[string]string{
+	"npm":   "npm",
+	"pip":   "PyPI",
+	"pypi":  "PyPI",
+	"go":    "Go",
+	"cargo": "crates.io",
+	"rust":  "crates.io",
+}
+
+// handlePkgCheck looks up known vulnerabilities for a package by name,
+// via the OSV.dev aggregator (covers npm, PyPI, Go, crates.io, and
+// more). Pure lookup, no code execution, no local dependency files
+// touched — safe to expose publicly.
+// usage: pkgcheck <ecosystem> <package-name>   e.g. pkgcheck npm express
+func handlePkgCheck(args []string) string {
+	if len(args) < 2 {
+		return "usage: pkgcheck <ecosystem> <package>\n  ecosystems: npm, pip, go, cargo\n  example: pkgcheck npm express"
+	}
+	ecoInput := strings.ToLower(args[0])
+	pkgName := args[1]
+
+	ecosystem, ok := supportedEcosystems[ecoInput]
+	if !ok {
+		return fmt.Sprintf("unsupported ecosystem: %q (try: npm, pip, go, cargo)", args[0])
+	}
+
+	reqBody, err := json.Marshal(osvQuery{
+		Package: osvPackage{Name: pkgName, Ecosystem: ecosystem},
+	})
+	if err != nil {
+		return "internal error building request"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.osv.dev/v1/query", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return "internal error building request"
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf("could not reach OSV.dev: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result osvResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "could not parse OSV.dev response"
+	}
+
+	if len(result.Vulns) == 0 {
+		return fmt.Sprintf("no known vulnerabilities found for %s (%s)", pkgName, ecosystem)
+	}
+
+	const maxShown = 10
+	var lines []string
+	lines = append(lines, fmt.Sprintf("%d known advisories for %s (%s):\n", len(result.Vulns), pkgName, ecosystem))
+	for i, v := range result.Vulns {
+		if i >= maxShown {
+			lines = append(lines, fmt.Sprintf("...and %d more (showing first %d)", len(result.Vulns)-maxShown, maxShown))
+			break
+		}
+		summary := v.Summary
+		if summary == "" {
+			summary = "(no summary provided)"
+		}
+		lines = append(lines, fmt.Sprintf("%-20s %s", v.ID, summary))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // --- zsh-flavored cosmetic commands ---
