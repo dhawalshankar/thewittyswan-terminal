@@ -14,9 +14,26 @@ import (
 
 var validHostPattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)
 
-// sanitizeHost strips scheme/trailing slash and rejects anything that
-// isn't a plausible hostname. This is the single choke point all
-// network-lab commands go through before touching net/tls/http.
+// isBlockedIP rejects loopback, private, link-local (this also covers
+// the 169.254.169.254 cloud metadata endpoint on GCP/AWS/Azure),
+// unspecified, and multicast ranges — anything that isn't a normal
+// public internet host.
+func isBlockedIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast()
+}
+
+// sanitizeHost strips scheme/trailing slash, rejects anything that
+// isn't a plausible hostname, then resolves it and rejects any host
+// that points at loopback/private/link-local/metadata addresses.
+// This is the single choke point all network-lab commands go through
+// before touching net/tls/http — it's what stands between a user
+// typing a hostname and this server making a real outbound request
+// on their behalf (i.e. it's the SSRF guard).
 func sanitizeHost(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	input = strings.TrimPrefix(input, "https://")
@@ -25,6 +42,32 @@ func sanitizeHost(input string) (string, error) {
 	if input == "" || !validHostPattern.MatchString(input) {
 		return "", fmt.Errorf("invalid host: %q", input)
 	}
+
+	// If it's a literal IP, check it directly.
+	if ip := net.ParseIP(input); ip != nil {
+		if isBlockedIP(ip) {
+			return "", fmt.Errorf("host not allowed: %q", input)
+		}
+		return input, nil
+	}
+
+	// Otherwise resolve the hostname and check every returned address.
+	// Rejecting if ANY resolved IP is internal prevents DNS-rebinding
+	// tricks where a hostname resolves to a mix of public and private IPs.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	resolver := net.Resolver{}
+	ips, err := resolver.LookupIPAddr(ctx, input)
+	if err != nil || len(ips) == 0 {
+		return "", fmt.Errorf("could not resolve host: %q", input)
+	}
+	for _, addr := range ips {
+		if isBlockedIP(addr.IP) {
+			return "", fmt.Errorf("host not allowed: %q", input)
+		}
+	}
+
 	return input, nil
 }
 

@@ -324,18 +324,14 @@ let historyIndex = -1;
 // normal command pipeline (see top of term.onData).
 let editMode = null; // null, or { filename, lines }
 
-// scrollTargetLine: buffer row where the current command's output began.
-// Always pinned to the TOP of the viewport — a fresh command's output
-// (and everything after it) should start right at the top, no matter how
-// long the output is. The user scrolls down manually to see the rest,
-// and scrolls up to revisit older output.
-function writePrompt(scrollTargetLine) {
+// writePrompt always autoscrolls to the bottom, like a normal terminal,
+// so the newest prompt is guaranteed fully visible. There's no attempt
+// to pin long output to the top anymore — for output taller than the
+// visible window, scroll up manually (or use the ▲ button) to read it
+// from the start.
+function writePrompt() {
   term.write("\r\n" + prompt());
-  if (typeof scrollTargetLine === "number") {
-    term.scrollToLine(scrollTargetLine);
-  } else {
-    term.scrollToBottom();
-  }
+  term.scrollToBottom();
 }
 function showBanner() {
   term.writeln("");
@@ -525,11 +521,8 @@ term.onData(async (data) => {
     if (char === "\r") { // Enter
       let command = currentLine.trim();
       command = normalizeInput(command);
-      term.write("\r\n");
 
-      // Row where this command's output will start — pinned to the top
-      // of the viewport once output + next prompt are written.
-      const outputStartLine = term.buffer.active.baseY + term.buffer.active.cursorY;
+      term.write("\r\n");
 
       currentLine = "";
       historyIndex = -1;
@@ -553,7 +546,7 @@ term.onData(async (data) => {
             term.writeln(`${idx + 1}  ${cmd}`);
           });
         }
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
@@ -586,40 +579,40 @@ term.onData(async (data) => {
       if (cmdName === "mkdir") {
         const out = vfsMkdir(cmdArgs.join(" "));
         if (out) term.writeln(out);
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
       if (cmdName === "touch") {
         const out = vfsTouch(cmdArgs.join(" "));
         if (out) term.writeln(out);
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
       if (cmdName === "cd") {
         const out = vfsCd(cmdArgs.join(" "));
         if (out) term.writeln(out);
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
       if (cmdName === "rm") {
         const out = vfsRm(cmdArgs.join(" "));
         if (out) term.writeln(out);
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
       if (cmdName === "ls" && cmdArgs.length === 0) {
         term.writeln(vfsLs());
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
       if (cmdName === "pwd") {
         term.writeln(vfsPwdString());
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
@@ -628,12 +621,12 @@ term.onData(async (data) => {
         if (redirect) {
           const out = vfsWriteFile(redirect.filename, redirect.text, redirect.append);
           if (out) term.writeln(out);
-          writePrompt(outputStartLine);
+          writePrompt();
           return;
         }
         // plain echo, no redirect — just print the text back
         term.writeln(cmdArgs.join(" ").replace(/^["']|["']$/g, ""));
-        writePrompt(outputStartLine);
+        writePrompt();
         return;
       }
 
@@ -641,13 +634,13 @@ term.onData(async (data) => {
         const filename = cmdArgs.join(" ");
         if (!filename) {
           term.writeln("usage: edit <file>");
-          writePrompt(outputStartLine);
+          writePrompt();
           return;
         }
         const dir = resolveDir(vfs, cwd);
         if (dir.children[filename] && dir.children[filename].type === "dir") {
           term.writeln(`edit: ${filename}: is a directory`);
-          writePrompt(outputStartLine);
+          writePrompt();
           return;
         }
         const existing = dir.children[filename];
@@ -671,7 +664,7 @@ term.onData(async (data) => {
         const vfsResult = vfsCatIfExists(cmdArgs.join(" "));
         if (vfsResult !== null) {
           term.writeln(vfsResult);
-          writePrompt(outputStartLine);
+          writePrompt();
           return;
         }
         // no matching vfs file — fall through to backend blog cat below
@@ -700,7 +693,7 @@ term.onData(async (data) => {
 
       busy = false;
       currentAbortController = null;
-      writePrompt(outputStartLine);
+      writePrompt();
     } else if (char === "\b" || code === 127) {
       if (currentLine.length > 0) {
         currentLine = currentLine.slice(0, -1);
