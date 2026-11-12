@@ -6,6 +6,13 @@ blog itself. Lives at `thewittyswan.space/terminal`.
 
 Built by **Dhawal**.
 
+## What this repository demonstrates
+
+This project is a compact Go systems application that combines HTTP serving,
+background synchronization, a virtual terminal UX, outbound network tooling,
+rate limiting, security headers, SSRF defenses, and Linux service deployment.
+It is intentionally framework-light: one Go process serves the UI and API.
+
 ## Why this exists
 
 The main site (`thewittyswan`) is for anyone. This one is for the "I'm a
@@ -27,8 +34,8 @@ running, nothing else to manage.
 
 - **Go** — backend, command parsing, HTTP server
 - **xterm.js** — terminal emulator, loaded via CDN, no build step
-- **SQLite** — planned, for caching and any persistent data (not yet wired in)
-- **Groq API** — planned, powers the "swan assistant" panel (not yet built)
+- **SQLite** — planned for persistence; not currently wired in
+- **Groq API** — planned for the swan assistant; not currently wired in
 - **GCP e2-micro VM** — hosting (Always Free tier, always-on, no cold starts)
 - **Caddy** — reverse proxy + automatic HTTPS on the VM
 - **systemd** — keeps the Go binary running, auto-restarts on crash/reboot
@@ -55,13 +62,23 @@ Visit `http://localhost:8080`.
 - `grep <term>` — search post titles and content
 - `refresh` — manually re-fetch `posts.json` (blog auto-syncs every 10 minutes otherwise)
 
-## Commands (planned)
+The terminal also exposes portfolio commands such as `about`, `resume`,
+`projects`, `skills`, `experience`, `education`, `achievements`, `timeline`,
+`github`, `leetcode`, and `contact`. Virtual filesystem commands are handled
+client-side by `static/js/terminal.js`.
 
-- `headers <domain>` — security headers report
-- `tls <domain>` — certificate/TLS report
-- `dig` / `whois <domain>` — DNS/WHOIS lookups
-- `ping <host>` — basic reachability check
-- Swan assistant — Groq-backed Q&A panel, triggered by a button, not a typed command
+## Network and security commands
+
+- `headers <domain>` — security headers and cookie-flag report
+- `tls <domain>` — certificate, protocol, cipher, and expiry inspection
+- `dig <host>` — DNS record diagnostics
+- `ping <host>` — TCP reachability check
+- `curl <url>` — controlled HTTP fetch and response preview
+- `ports <host>` — common-port reachability checks
+- `pkgcheck <ecosystem> <package>` — OSV.dev dependency vulnerability lookup
+
+The Swan assistant and SQLite persistence remain planned; they are not current
+runtime features.
 
 ## How the blog connection works
 
@@ -71,12 +88,41 @@ touches the blog's GitHub repo or database directly — just this one
 public JSON feed. If the blog is temporarily unreachable, the terminal
 keeps serving its last known cache rather than breaking.
 
-## Deployment (planned)
+`portfolio.go` follows the same integration pattern for
+`https://thewittyswan.space/portfolio.json`. Both caches are protected by
+read/write mutexes and refreshed by background goroutines; the `refresh`
+command updates both feeds on demand.
 
-Not yet deployed. Plan: provision a free GCP e2-micro VM, copy the built
-Go binary over, run it under systemd, put Caddy in front for HTTPS and
-routing (`/terminal` → this app, everything else on the domain →
-Vercel's Jekyll deployment).
+## Security model
+
+The `/run` endpoint is treated as an untrusted-input boundary:
+
+- Per-IP token-bucket rate limiting (`golang.org/x/time/rate`)
+- Security headers including CSP, HSTS, frame blocking, and MIME sniffing
+  protection
+- Hostname validation before any outbound network request
+- DNS resolution checks against loopback, private, link-local, multicast,
+  unspecified, and cloud metadata addresses
+- Three-second DNS resolution and eight-second HTTP timeouts
+- TLS inspection and network utilities routed through the same host guard
+- No arbitrary shell execution; commands are parsed and dispatched through
+  an allowlisted switch in `commands.go`
+
+The relevant implementation is in `main.go`, `commands.go`, and
+`portfolio_commands.go`.
+
+## Production deployment
+
+The production deployment uses a GCP e2-micro VM, a compiled Go binary,
+systemd for process supervision, and Caddy for reverse proxying and automatic
+HTTPS. Caddy routes `thewittyswan.space/terminal` to the Go service, while
+the root `thewittyswan.space` application is the Jekyll site deployed on
+Vercel.
+
+The VM deployment was completed using an SSH/bash deployment workflow in the
+free-tier GCP environment. `go.mod` and `go.sum` define the minimal Go
+dependency surface; systemd keeps the process alive across crashes and
+reboots.
 
 ## License
 
