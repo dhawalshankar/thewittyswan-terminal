@@ -1,130 +1,116 @@
-# thewittyswan-terminal
+<div align="center">
+  <h1>thewittyswan-terminal</h1>
+  <p><strong>A real, interactive developer terminal in your browser.</strong></p>
+  <p>Explore the blog, inspect network security, and try the tools behind the site.</p>
+  <p>
+    <a href="https://thewittyswan.space/terminal"><strong>Open the live terminal</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://thewittyswan.space">Visit the main site</a>
+  </p>
+  <p>
+    <a href="https://github.com/DhawalShankar/thewittyswan-terminal/actions/workflows/ci.yml">
+      <img src="https://github.com/DhawalShankar/thewittyswan-terminal/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status">
+    </a>
+    <img src="https://img.shields.io/badge/Go-1.26.5-00ADD8?logo=go&amp;logoColor=white" alt="Go 1.26.5">
+  </p>
+  <sub>Built by <strong>Dhawal</strong></sub>
+</div>
 
-The dev-facing half of thewittyswan. A real, interactive terminal in the
-browser — networking and security tools, and a browsable feed of the
-blog itself. Lives at `thewittyswan.space/terminal`.
+---
 
-Built by **Dhawal**.
+## The idea
 
-## What this repository demonstrates
+The main site is for everyone; this is for the curious developer. Type commands,
+get real answers, and explore the blog and portfolio through a terminal-style
+interface. One lightweight Go process serves the UI and API—no frontend build
+pipeline or component framework required.
 
-This project is a compact Go systems application that combines HTTP serving,
-background synchronization, a virtual terminal UX, outbound network tooling,
-rate limiting, security headers, SSRF defenses, and Linux service deployment.
-It is intentionally framework-light: one Go process serves the UI and API.
+## At a glance
 
-## Why this exists
+| Layer | Technology |
+| --- | --- |
+| Backend and HTTP server | Go |
+| Terminal interface | xterm.js |
+| Hosting | GCP e2-micro VM |
+| Reverse proxy and HTTPS | Caddy |
+| Process supervision | systemd |
 
-The main site (`thewittyswan`) is for anyone. This one is for the "I'm a
-dev" crowd — a place to actually poke at something instead of just
-reading about it. Type commands, get real answers, maybe learn something
-about how the site itself is built along the way.
+The terminal reads public JSON feeds from the separate `thewittyswan` Jekyll
+blog and portfolio site. It does not share their codebase or database. SQLite
+persistence and the Swan assistant are planned, not current runtime features.
 
-## Why Go + xterm.js, not a framework
+## Explore
 
-Same philosophy as the blog repo: simple, boring, easy to reason about.
-Go compiles to a single binary — no runtime dependencies, no build
-pipeline to fight with, easy to deploy to a plain VM. xterm.js gives a
-genuine terminal look (cursor, monospace grid, keyboard capture) without
-needing React or any component framework wrapped around it. One Go
-process serves both the frontend page and the API — nothing else
-running, nothing else to manage.
+### Blog and portfolio
 
-## Stack
+| Command | What it does |
+| --- | --- |
+| `help`, `whoami` | Show available commands and terminal info |
+| `ls blog/`, `ls blog/netsec`, `ls blog/literature` | Browse posts from the live blog feed |
+| `cat <slug or title>` | Read a post |
+| `grep <term>` | Search post titles and content |
+| `refresh` | Refresh the blog and portfolio feeds |
+| `about`, `resume`, `projects`, `skills`, `experience` | Explore portfolio details |
+| `education`, `achievements`, `timeline`, `github`, `leetcode`, `contact` | More portfolio commands |
 
-- **Go** — backend, command parsing, HTTP server
-- **xterm.js** — terminal emulator, loaded via CDN, no build step
-- **SQLite** — planned for persistence; not currently wired in
-- **Groq API** — planned for the swan assistant; not currently wired in
-- **GCP e2-micro VM** — hosting (Always Free tier, always-on, no cold starts)
-- **Caddy** — reverse proxy + automatic HTTPS on the VM
-- **systemd** — keeps the Go binary running, auto-restarts on crash/reboot
+Virtual filesystem commands are handled client-side by
+[`static/js/terminal.js`](static/js/terminal.js). HTTP and HTTPS URLs in terminal
+output open in a new tab with Ctrl+click; on touch screens, tap the link.
 
-This is one of two repos. The other, `thewittyswan`, is the Jekyll blog
-and portfolio, hosted separately on Vercel. The two are independent —
-this terminal reads the blog's public `posts.json` feed rather than
-sharing a codebase or database with it.
+### Network and security
 
-## Local setup
+| Command | What it does |
+| --- | --- |
+| `headers <domain>` | Inspect security headers and cookie flags |
+| `tls <domain>` | Inspect certificate, protocol, cipher, and expiry |
+| `dig <host>` | Look up DNS records |
+| `ping <host>` | Check TCP reachability |
+| `curl <url>` | Fetch and preview an HTTP response |
+| `ports <host>` | Check common ports |
+| `pkgcheck <ecosystem> <package>` | Look up dependency advisories from OSV.dev |
+
+## Run locally
+
+Use the Go version specified in [`go.mod`](go.mod), then run:
 
 ```powershell
-go run main.go blog.go commands.go
+go run .
 ```
 
-Visit `http://localhost:8080`.
+Open [http://localhost:8080/terminal](http://localhost:8080/terminal).
 
-## Commands (current)
+## How it works
 
-- `help` — list available commands
-- `whoami` — basic info about the terminal
-- `ls blog/`, `ls blog/netsec`, `ls blog/literature` — list posts from the live blog feed
-- `cat <slug or title>` — print a post's content
-- `grep <term>` — search post titles and content
-- `refresh` — manually re-fetch `posts.json` (blog auto-syncs every 10 minutes otherwise)
-
-The terminal also exposes portfolio commands such as `about`, `resume`,
-`projects`, `skills`, `experience`, `education`, `achievements`, `timeline`,
-`github`, `leetcode`, and `contact`. Virtual filesystem commands are handled
-client-side by `static/js/terminal.js`.
-HTTP and HTTPS URLs printed in the terminal open in a new tab with Ctrl+click
-(tap the link on touch screens).
-
-## Network and security commands
-
-- `headers <domain>` — security headers and cookie-flag report
-- `tls <domain>` — certificate, protocol, cipher, and expiry inspection
-- `dig <host>` — DNS record diagnostics
-- `ping <host>` — TCP reachability check
-- `curl <url>` — controlled HTTP fetch and response preview
-- `ports <host>` — common-port reachability checks
-- `pkgcheck <ecosystem> <package>` — OSV.dev dependency vulnerability lookup
-
-The Swan assistant and SQLite persistence remain planned; they are not current
-runtime features.
-
-## How the blog connection works
-
-`blog.go` fetches `https://thewittyswan.space/posts.json` on startup and
-every 10 minutes after that, caching it in memory. The terminal never
-touches the blog's GitHub repo or database directly — just this one
-public JSON feed. If the blog is temporarily unreachable, the terminal
-keeps serving its last known cache rather than breaking.
-
-`portfolio.go` follows the same integration pattern for
-`https://thewittyswan.space/portfolio.json`. Both caches are protected by
-read/write mutexes and refreshed by background goroutines; the `refresh`
+The app fetches `https://thewittyswan.space/posts.json` and
+`https://thewittyswan.space/portfolio.json` at startup, then refreshes both
+feeds every 10 minutes. Results are cached in memory; if a feed is temporarily
+unavailable, the terminal keeps serving its last known cache. The `refresh`
 command updates both feeds on demand.
 
-## Security model
+## Security
 
-The `/run` endpoint is treated as an untrusted-input boundary:
+The `/run` endpoint treats commands as untrusted input:
 
-- Per-IP token-bucket rate limiting (`golang.org/x/time/rate`)
-- Security headers including CSP, HSTS, frame blocking, and MIME sniffing
+- Per-IP token-bucket rate limiting with `golang.org/x/time/rate`
+- Security headers including CSP, HSTS, frame blocking, and MIME-sniffing
   protection
-- Hostname validation before any outbound network request
-- DNS resolution checks against loopback, private, link-local, multicast,
-  unspecified, and cloud metadata addresses
-- Three-second DNS resolution and eight-second HTTP timeouts
-- TLS inspection and network utilities routed through the same host guard
-- No arbitrary shell execution; commands are parsed and dispatched through
-  an allowlisted switch in `commands.go`
+- Hostname validation and DNS checks that block loopback, private, link-local,
+  multicast, unspecified, and cloud metadata addresses
+- Three-second DNS and eight-second HTTP timeouts
+- TLS inspection and network tools routed through the same host guard
+- No arbitrary shell execution; commands use an allowlisted dispatcher
 
-The relevant implementation is in `main.go`, `commands.go`, and
-`portfolio_commands.go`.
+See `main.go`, `commands.go`, and `portfolio_commands.go` for the relevant
+implementation.
 
-## Production deployment
+## CI/CD and production
 
-The production deployment uses a GCP e2-micro VM, a compiled Go binary,
-systemd for process supervision, and Caddy for reverse proxying and automatic
-HTTPS. Caddy routes `thewittyswan.space/terminal` to the Go service, while
-the root `thewittyswan.space` application is the Jekyll site deployed on
-Vercel.
+Production runs on a GCP e2-micro VM. Caddy routes
+`thewittyswan.space/terminal` to the Go service; systemd keeps the binary alive
+across crashes and reboots. GitHub Actions checks changes and, after successful
+CI on `main`, connects to the VM over SSH and runs the existing `deploy.sh`.
 
-The VM deployment was completed using an SSH/bash deployment workflow in the
-free-tier GCP environment. `go.mod` and `go.sum` define the minimal Go
-dependency surface; systemd keeps the process alive across crashes and
-reboots.
+See [`deploy/README.md`](deploy/README.md) for deployment details.
 
 ## License
 
