@@ -37,3 +37,5 @@ jobs:
             cd '${{ env.APP_DIR }}'
             ./deploy.sh
             sudo -n systemctl is-active --quiet '${{ env.SERVICE_NAME }}'
+            test -s "$HOME/.ssh/authorized_keys"
+            echo "VM authorized_keys present"

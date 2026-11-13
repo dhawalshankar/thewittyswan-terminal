@@ -13,6 +13,7 @@
     </a>
     <img src="https://img.shields.io/badge/Go-1.26.5-00ADD8?logo=go&amp;logoColor=white" alt="Go 1.26.5">
   </p>
+  <sub>Author: <strong>Dhawal Shukla</strong></sub>
 </div>
 
 ---
@@ -109,6 +110,8 @@ Production runs on a GCP e2-micro VM. Caddy routes
 `thewittyswan.space/terminal` to the Go service; systemd keeps the binary alive
 across crashes and reboots. GitHub Actions checks changes and, after successful
 CI on `main`, connects to the VM over SSH and runs the existing `deploy.sh`.
+The deploy workflow also verifies that the service is active and the VM's
+`authorized_keys` file remains present.
 
 See [`deploy/README.md`](deploy/README.md) for deployment details.
 
