@@ -13,7 +13,6 @@
     </a>
     <img src="https://img.shields.io/badge/Go-1.26.5-00ADD8?logo=go&amp;logoColor=white" alt="Go 1.26.5">
   </p>
-  <sub>Built by <strong>Dhawal</strong></sub>
 </div>
 
 ---
