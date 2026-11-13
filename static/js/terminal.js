@@ -6,6 +6,7 @@ const reopenPill = document.getElementById("reopenPill");
 const closeBtn = document.getElementById("closeBtn");
 const minimizeBtn = document.getElementById("minimizeBtn");
 const maximizeBtn = document.getElementById("maximizeBtn");
+const scrollControls = document.getElementById("scrollControls");
 const safeAreaProbe = document.getElementById("safeAreaProbe");
 const scrollUpBtn = document.getElementById("scrollUpBtn");
 const scrollDownBtn = document.getElementById("scrollDownBtn");
@@ -188,11 +189,12 @@ function startResize(clientX, clientY) {
 
 function doResize(clientX, clientY) {
   if (!resizing) return;
-  const minW = 280, minH = 200;
   const rect = win.getBoundingClientRect();
   const vp = getViewportRect();
   const maxW = vp.left + vp.width - rect.left;
   const maxH = vp.top + vp.height - rect.top;
+  const minW = Math.min(280, maxW);
+  const minH = Math.min(200, maxH);
   let w = startW + (clientX - resizeStartX);
   let h = startH + (clientY - resizeStartY);
   w = Math.min(Math.max(w, minW), maxW);
@@ -210,6 +212,28 @@ resizeHandle.addEventListener("mousedown", (e) => {
   startResize(e.clientX, e.clientY);
   e.preventDefault();
   e.stopPropagation();
+});
+resizeHandle.addEventListener("keydown", (e) => {
+  const directions = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+  };
+  const direction = directions[e.key];
+  if (!direction) return;
+
+  const rect = win.getBoundingClientRect();
+  const vp = getViewportRect();
+  const maxW = vp.left + vp.width - rect.left;
+  const maxH = vp.top + vp.height - rect.top;
+  const step = e.shiftKey ? 40 : 10;
+  const width = Math.min(maxW, Math.max(Math.min(280, maxW), rect.width + direction[0] * step));
+  const height = Math.min(maxH, Math.max(Math.min(200, maxH), rect.height + direction[1] * step));
+  win.style.width = width + "px";
+  win.style.height = height + "px";
+  fitAddon.fit();
+  e.preventDefault();
 });
 window.addEventListener("mousemove", (e) => doResize(e.clientX, e.clientY));
 window.addEventListener("mouseup", endResize);
@@ -238,25 +262,42 @@ let preMinimizeHeight = null;
 closeBtn.addEventListener("click", () => {
   win.style.display = "none";
   reopenPill.classList.add("visible");
+  reopenPill.focus();
 });
 reopenPill.addEventListener("click", () => {
   win.style.display = "flex";
   reopenPill.classList.remove("visible");
-  requestAnimationFrame(() => { try { fitAddon.fit(); } catch (e) {} term.focus(); });
+  if (minimized) setMinimized(false);
+  requestAnimationFrame(() => {
+    applyViewportChange();
+    term.focus();
+  });
 });
 
-minimizeBtn.addEventListener("click", () => {
-  minimized = !minimized;
+function setMinimized(next) {
+  minimized = next;
   if (minimized) {
     preMinimizeHeight = win.style.height || win.getBoundingClientRect().height + "px";
     terminalEl.style.display = "none";
+    scrollControls.hidden = true;
     resizeHandle.style.display = "none";
     win.style.height = "auto";
   } else {
     terminalEl.style.display = "block";
+    scrollControls.hidden = false;
     resizeHandle.style.display = "block";
     win.style.height = preMinimizeHeight;
-    requestAnimationFrame(() => { try { fitAddon.fit(); } catch (e) {} });
+  }
+  minimizeBtn.setAttribute("aria-label", minimized ? "Restore terminal" : "Minimize terminal");
+  minimizeBtn.title = minimized ? "Restore" : "Minimize";
+}
+minimizeBtn.addEventListener("click", () => {
+  setMinimized(!minimized);
+  if (!minimized) {
+    requestAnimationFrame(() => {
+      applyViewportChange();
+      term.focus();
+    });
   }
 });
 
@@ -281,6 +322,8 @@ maximizeBtn.addEventListener("click", () => {
     win.style.width = vp.width + "px";
     win.style.height = vp.height + "px";
   }
+  maximizeBtn.setAttribute("aria-label", savedRect ? "Restore terminal" : "Maximize terminal");
+  maximizeBtn.title = savedRect ? "Restore" : "Maximize";
 });
 
 // -----------------------------------------------------------------
@@ -310,6 +353,14 @@ function wireScrollButton(btn, lines) {
 wireScrollButton(scrollUpBtn, -3);
 wireScrollButton(scrollDownBtn, 3);
 
+function updateScrollControls() {
+  const buffer = term.buffer.active;
+  scrollUpBtn.disabled = buffer.viewportY <= 0;
+  scrollDownBtn.disabled = buffer.viewportY >= buffer.baseY;
+}
+term.onScroll(updateScrollControls);
+term.onRender(updateScrollControls);
+
 terminalEl.addEventListener("touchend", () => {
   if (!dragging && !resizing) term.focus();
 });
@@ -331,6 +382,40 @@ let historyIndex = -1;
 // normal command pipeline (see top of term.onData).
 let editMode = null; // null, or { filename, lines }
 
+function reportClipboardFailure(action) {
+  term.write(`\r\n[clipboard] Unable to ${action}; check your browser's clipboard permission.\r\n`);
+  if (!busy) {
+    term.write(editMode ? `> ${currentLine}` : prompt() + currentLine);
+  }
+  term.scrollToBottom();
+}
+
+term.attachCustomKeyEventHandler((event) => {
+  if (event.type !== "keydown" || !(event.ctrlKey || event.metaKey)) return true;
+
+  const key = event.key.toLowerCase();
+  if (key === "c" && term.hasSelection() && navigator.clipboard?.writeText) {
+    event.preventDefault();
+    navigator.clipboard.writeText(term.getSelection())
+      .catch(() => reportClipboardFailure("copy"));
+    return false;
+  }
+
+  if (key === "v" && navigator.clipboard?.readText) {
+    event.preventDefault();
+    navigator.clipboard.readText().then((text) => {
+      if (!text) return;
+      const pastedText = editMode
+        ? text.replace(/\r\n?|\n/g, "\r")
+        : text.replace(/\r\n?|\n/g, " ");
+      term.paste(pastedText);
+    }).catch(() => reportClipboardFailure("paste"));
+    return false;
+  }
+
+  return true;
+});
+
 // writePrompt always autoscrolls to the bottom, like a normal terminal,
 // so the newest prompt is guaranteed fully visible. There's no attempt
 // to pin long output to the top anymore — for output taller than the
@@ -342,20 +427,18 @@ function writePrompt() {
 }
 function showBanner() {
   term.writeln("");
-  term.writeln(center("TheWittySwan"));
-  term.writeln(center("Interactive Portfolio Terminal"));
+  term.writeln("\x1b[1;38;2;224;201;166mTheWittySwan\x1b[0m");
+  term.writeln("\x1b[1mInteractive Portfolio Terminal\x1b[0m");
   term.writeln("");
-  term.writeln(center("Dhawal Shukla"));
+  term.writeln("Dhawal Shukla");
   term.writeln("");
-  term.writeln(center("Backend Engineering • Network Security • Cloud"));
+  term.writeln("Backend Engineering");
+  term.writeln("Network Security • Cloud");
   term.writeln("");
-  term.writeln(center("Type 'help' to explore."));
+  term.writeln("Type 'help' to explore.");
+  term.writeln("Ctrl+V paste");
+  term.writeln("Select text; Ctrl+C copies");
   term.writeln("");
-}
-function center(text) {
-  const cols = term.cols;
-  const padding = Math.max(0, Math.floor((cols - text.length) / 2));
-  return " ".repeat(padding) + text;
 }
 function clearCurrentLine() {
   term.write("\b \b".repeat(currentLine.length));
@@ -459,18 +542,17 @@ term.onData(async (data) => {
   // edit session is open, so this check sits above every other guard.
   if (data === "\x03") {
     if (editMode) {
+      clearCurrentLine();
       term.write("^C");
       finishEdit(false);
       return;
     }
-    if (busy && currentAbortController) {
-      currentAbortController.abort();
-    }
+    if (busy) currentAbortController?.abort();
+    else clearCurrentLine();
     term.write("^C");
     currentLine = "";
     historyIndex = -1;
-    busy = false;
-    writePrompt();
+    if (!busy) writePrompt();
     return;
   }
 
@@ -660,8 +742,9 @@ term.onData(async (data) => {
           lines: existing && existing.content ? existing.content.split("\n") : [],
         };
         term.writeln(`-- editing ${filename} --`);
-        term.writeln("type your text, one line at a time");
-        term.writeln("finish with a line containing just '.' or Ctrl+D");
+        term.writeln("type text one line at a time");
+        term.writeln("finish with '.' on its own line");
+        term.writeln("or press Ctrl+D");
         if (editMode.lines.length) {
           term.writeln("--- existing content (new lines will be appended) ---");
           editMode.lines.forEach(l => term.writeln(l));

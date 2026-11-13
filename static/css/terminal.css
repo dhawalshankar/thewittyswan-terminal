@@ -28,9 +28,9 @@ body {
   position: fixed;
   width: 320px;
   height: 480px;
-  min-width: 280px;
-  min-height: 200px;
-  max-height: calc(100dvh - 24px); /* keeps the window inside the visible viewport, even when the on-screen keyboard shrinks it */
+  min-width: 0;
+  min-height: 0;
+  max-height: 100dvh;
   background: #111214;
   border-radius: 14px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
@@ -137,6 +137,7 @@ body {
   gap: 4px;
   z-index: 5;
 }
+.scroll-controls[hidden] { display: none; }
 .scroll-btn {
   width: 30px;
   height: 30px;
@@ -155,6 +156,12 @@ body {
 }
 .scroll-btn:hover { background: #26272b; color: #d8d8dc; }
 .scroll-btn:active { background: #303136; }
+.scroll-btn:disabled {
+  color: #55565b;
+  cursor: default;
+  opacity: 0.55;
+}
+.scroll-btn:disabled:hover { background: rgba(28, 29, 32, 0.85); }
 .scroll-btn:focus-visible { outline: 2px solid #e0c9a6; outline-offset: 1px; }
 
 .resize-handle {
@@ -163,13 +170,17 @@ body {
   bottom: 0;
   width: 40px;
   height: 40px;
+  border: 0;
+  padding: 0;
   cursor: nwse-resize;
   touch-action: none;
+  background-color: transparent;
   background:
     linear-gradient(135deg, transparent 0 62%, #3a3a3f 62% 68%, transparent 68% 74%, #3a3a3f 74% 80%, transparent 80%);
   opacity: 0.85;
 }
 .resize-handle:hover { opacity: 1; }
+.resize-handle:focus-visible { outline: 2px solid #e0c9a6; outline-offset: -3px; }
 
 .reopen-pill {
   position: fixed;
@@ -188,6 +199,7 @@ body {
   display: none;
 }
 .reopen-pill.visible { display: block; }
+.reopen-pill:focus-visible { outline: 2px solid #e0c9a6; outline-offset: 3px; }
 
 @media (min-width: 641px) {
   .titlebar { padding: 10px 14px; }

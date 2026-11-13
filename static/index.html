@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0d0d0d">
   <title>thewittyswan terminal</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
@@ -15,9 +15,9 @@
   <div class="terminal-window" id="terminalWindow">
     <div class="titlebar" id="titlebar">
       <div class="traffic-lights">
-        <button class="dot red" id="closeBtn" aria-label="Close terminal" title="Close"></button>
-        <button class="dot yellow" id="minimizeBtn" aria-label="Minimize terminal" title="Minimize"></button>
-        <button class="dot green" id="maximizeBtn" aria-label="Maximize terminal" title="Maximize"></button>
+        <button class="dot red" id="closeBtn" aria-label="Close terminal" title="Close" type="button"></button>
+        <button class="dot yellow" id="minimizeBtn" aria-label="Minimize terminal" title="Minimize" type="button"></button>
+        <button class="dot green" id="maximizeBtn" aria-label="Maximize terminal" title="Maximize" type="button"></button>
       </div>
       <span class="titlebar-label">swan@thewittyswan — terminal</span>
       <div class="traffic-lights mirror" aria-hidden="true">
@@ -28,13 +28,13 @@
     </div>
     <div id="terminal"></div>
     <div class="scroll-controls" id="scrollControls">
-      <button class="scroll-btn" id="scrollUpBtn" aria-label="Scroll up" title="Scroll up">▲</button>
-      <button class="scroll-btn" id="scrollDownBtn" aria-label="Scroll down" title="Scroll down">▼</button>
+      <button class="scroll-btn" id="scrollUpBtn" aria-label="Scroll up" title="Scroll up" type="button" disabled>▲</button>
+      <button class="scroll-btn" id="scrollDownBtn" aria-label="Scroll down" title="Scroll down" type="button" disabled>▼</button>
     </div>
-    <div class="resize-handle" id="resizeHandle"></div>
+    <button class="resize-handle" id="resizeHandle" type="button" aria-label="Resize terminal with arrow keys" title="Drag or use arrow keys to resize"></button>
   </div>
 
-  <button class="reopen-pill" id="reopenPill">▶ reopen terminal</button>
+  <button class="reopen-pill" id="reopenPill" type="button">▶ reopen terminal</button>
 
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
