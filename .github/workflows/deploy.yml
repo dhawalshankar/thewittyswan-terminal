@@ -37,5 +37,6 @@ jobs:
             cd '${{ env.APP_DIR }}'
             ./deploy.sh
             sudo -n systemctl is-active --quiet '${{ env.SERVICE_NAME }}'
+            curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/healthz >/dev/null
             test -s "$HOME/.ssh/authorized_keys"
             echo "VM authorized_keys present"

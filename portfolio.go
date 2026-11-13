@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -103,14 +104,20 @@ var (
 const portfolioURL = "https://thewittyswan.space/portfolio.json"
 
 func fetchPortfolio() {
-	resp, err := http.Get(portfolioURL)
+	resp, err := feedHTTPClient.Get(portfolioURL)
 	if err != nil {
+		log.Printf("fetch portfolio feed: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer closeAndLog("portfolio feed response body", resp.Body)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		log.Printf("fetch portfolio feed: HTTP %d", resp.StatusCode)
+		return
+	}
 
 	var p Portfolio
 	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+		log.Printf("decode portfolio feed: %v", err)
 		return
 	}
 

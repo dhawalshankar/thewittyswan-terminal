@@ -3,10 +3,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +19,8 @@ import (
 type CommandRequest struct {
 	Command string `json:"command"`
 }
+
+const maxCommandRequestBytes = 8 << 10
 
 // ---------------------------------------------------------------------
 // Rate limiting: one token-bucket limiter per client IP. Entries are
@@ -73,16 +78,29 @@ func (rl *rateLimiter) cleanupLoop() {
 }
 
 func clientIP(r *http.Request) string {
-	// Trust X-Forwarded-For only if you're behind a known reverse proxy
-	// you control (e.g. nginx, Cloudflare). Otherwise RemoteAddr is safer.
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return fwd
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	remoteIP := net.ParseIP(strings.Trim(host, "[]"))
+	if remoteIP == nil {
+		return host
+	}
+	if !remoteIP.IsLoopback() {
+		return remoteIP.String()
+	}
+
+	// Caddy is a local reverse proxy. Ignore forwarded headers from direct clients.
+	var forwardedIP string
+	for _, value := range strings.Split(r.Header.Get("X-Forwarded-For"), ",") {
+		if ip := net.ParseIP(strings.TrimSpace(value)); ip != nil {
+			forwardedIP = ip.String()
+		}
+	}
+	if forwardedIP != "" {
+		return forwardedIP
+	}
+	return remoteIP.String()
 }
 
 func (rl *rateLimiter) middleware(next http.HandlerFunc) http.HandlerFunc {
@@ -131,6 +149,46 @@ func chain(h http.HandlerFunc, mws ...func(http.HandlerFunc) http.HandlerFunc) h
 	return h
 }
 
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func runHandler(limiter *rateLimiter) http.HandlerFunc {
+	return chain(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCommandRequestBytes))
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		var req CommandRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if _, err := w.Write([]byte(runCommand(req.Command))); err != nil {
+			log.Printf("write command response: %v", err)
+		}
+	}, securityHeaders, limiter.middleware)
+}
+
 func main() {
 	// Start background sync services
 	startBlogSync()
@@ -154,23 +212,17 @@ func main() {
 		http.ServeFile(w, r, "./static/index.html")
 	}, securityHeaders))
 
-	// Command execution endpoint — rate limited + security headers
-	http.HandleFunc("/run", chain(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var req CommandRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-
-		output := runCommand(req.Command)
-		w.Write([]byte(output))
-	}, securityHeaders, limiter.middleware))
+	http.HandleFunc("/healthz", chain(healthHandler, securityHeaders))
+	http.HandleFunc("/run", runHandler(limiter))
 
 	fmt.Println("Server starting on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	server := &http.Server{
+		Addr:              ":8080",
+		Handler:           http.DefaultServeMux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      45 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }

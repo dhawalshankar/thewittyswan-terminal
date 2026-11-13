@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -23,15 +24,23 @@ var (
 
 const postsURL = "https://thewittyswan.space/posts.json"
 
+var feedHTTPClient = &http.Client{Timeout: 8 * time.Second}
+
 func fetchPosts() {
-	resp, err := http.Get(postsURL)
+	resp, err := feedHTTPClient.Get(postsURL)
 	if err != nil {
+		log.Printf("fetch blog feed: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer closeAndLog("blog feed response body", resp.Body)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		log.Printf("fetch blog feed: HTTP %d", resp.StatusCode)
+		return
+	}
 
 	var posts []Post
 	if err := json.NewDecoder(resp.Body).Decode(&posts); err != nil {
+		log.Printf("decode blog feed: %v", err)
 		return
 	}
 

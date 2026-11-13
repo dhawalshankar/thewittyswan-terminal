@@ -6,6 +6,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"regexp"
@@ -14,6 +16,12 @@ import (
 )
 
 var validHostPattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)
+
+func closeAndLog(description string, closer io.Closer) {
+	if err := closer.Close(); err != nil {
+		log.Printf("close %s: %v", description, err)
+	}
+}
 
 // isBlockedIP rejects loopback, private, link-local (this also covers
 // the 169.254.169.254 cloud metadata endpoint on GCP/AWS/Azure),
@@ -285,7 +293,7 @@ func handleHeaders(args []string) string {
 	if err != nil {
 		return fmt.Sprintf("could not reach %s: %v", domain, err)
 	}
-	defer resp.Body.Close()
+	defer closeAndLog("headers response body", resp.Body)
 
 	securityHeaders := []string{
 		"Strict-Transport-Security",
@@ -378,7 +386,7 @@ func handleTLS(args []string) string {
 		}
 		tlsConn := tls.Client(rawConn, &tls.Config{ServerName: domain})
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			rawConn.Close()
+			closeAndLog("failed TLS connection", rawConn)
 			resultCh <- dialResult{nil, err}
 			return
 		}
@@ -395,7 +403,7 @@ func handleTLS(args []string) string {
 	if res.err != nil {
 		return fmt.Sprintf("could not establish TLS connection to %s: %v", domain, res.err)
 	}
-	defer res.conn.Close()
+	defer closeAndLog("TLS connection", res.conn)
 
 	cert := res.conn.ConnectionState().PeerCertificates[0]
 	versionNames := map[uint16]string{
@@ -505,7 +513,7 @@ func handlePing(args []string) string {
 			var d net.Dialer
 			conn, err := d.DialContext(ctx, "tcp", host+":443")
 			if err == nil {
-				conn.Close()
+				closeAndLog("ping connection", conn)
 			}
 			resultCh <- dialResult{elapsed: time.Since(start), err: err}
 		}()
@@ -546,21 +554,25 @@ func handleCurl(args []string) string {
 	if err != nil {
 		return fmt.Sprintf("curl: could not reach %s: %v", domain, err)
 	}
-	defer resp.Body.Close()
+	defer closeAndLog("curl response body", resp.Body)
 
 	const maxBytes = 2000
-	buf := make([]byte, maxBytes)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
-
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return fmt.Sprintf("curl: could not read response from %s: %v", domain, err)
+	}
+	truncated := len(bodyBytes) > maxBytes
+	if truncated {
+		bodyBytes = bodyBytes[:maxBytes]
+	}
 	truncatedNote := ""
-	if n == maxBytes {
+	if truncated {
 		truncatedNote = "\n...[truncated]"
 	}
 
 	return fmt.Sprintf("HTTP %d %s\nContent-Type: %s\n\n%s%s",
 		resp.StatusCode, http.StatusText(resp.StatusCode),
-		resp.Header.Get("Content-Type"), body, truncatedNote)
+		resp.Header.Get("Content-Type"), string(bodyBytes), truncatedNote)
 }
 
 // handlePorts checks a small fixed set of common ports rather than a
@@ -604,7 +616,7 @@ func handlePorts(args []string) string {
 		status := "closed"
 		if err == nil {
 			status = "open"
-			conn.Close()
+			closeAndLog("port check connection", conn)
 		}
 		lines = append(lines, fmt.Sprintf("%-6d %-12s %s", p.port, p.service, status))
 	}
@@ -681,7 +693,10 @@ func handlePkgCheck(args []string) string {
 	if err != nil {
 		return fmt.Sprintf("could not reach OSV.dev: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeAndLog("OSV response body", resp.Body)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Sprintf("OSV.dev returned HTTP %d", resp.StatusCode)
+	}
 
 	var result osvResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

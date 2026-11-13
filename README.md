@@ -110,8 +110,9 @@ Production runs on a GCP e2-micro VM. Caddy routes
 `thewittyswan.space/terminal` to the Go service; systemd keeps the binary alive
 across crashes and reboots. GitHub Actions checks changes and, after successful
 CI on `main`, connects to the VM over SSH and runs the existing `deploy.sh`.
-The deploy workflow also verifies that the service is active and the VM's
-`authorized_keys` file remains present.
+The deploy workflow also checks the local `/healthz` endpoint, verifies that
+the systemd service is active, and confirms the VM's `authorized_keys` file
+remains present.
 
 See [`deploy/README.md`](deploy/README.md) for deployment details.
 
