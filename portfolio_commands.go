@@ -267,7 +267,7 @@ func handleHelp() string {
 
 	out = append(out, section("CAREER", []cmdEntry{
 		{"resume", "resume summary"},
-		{"resume pdf", "get the resume PDF link"},
+		{"resume pdf", "open the resume PDF"},
 		{"skills", "tech stack / skills list"},
 		{"contact", "email, socials, links"},
 		{"timeline", "career/education timeline"},

@@ -402,6 +402,10 @@ function normalizeInput(command) {
   return corrected.join(" ");
 }
 
+function isResumeOpenCommand(command) {
+  return /^resume\s+(pdf|open|download)$/.test(command.trim());
+}
+
 // -----------------------------------------------------------------
 // Redirect parsing for `echo <text> > file` / `echo <text> >> file`.
 // Returns null if the command isn't an echo-with-redirect, so plain
@@ -672,6 +676,9 @@ term.onData(async (data) => {
 
       busy = true;
       currentAbortController = new AbortController();
+      const resumeWindow = isResumeOpenCommand(command)
+        ? window.open("about:blank", "_blank")
+        : null;
 
       try {
         const res = await fetch("/run", {
@@ -683,7 +690,17 @@ term.onData(async (data) => {
 
         const text = await res.text();
         term.write(text.replace(/\r?\n/g, "\r\n"));
+
+        const resumeURL = text.match(/^opening resume:\s*(https?:\/\/\S+)\s*$/i)?.[1];
+        if (resumeWindow && resumeURL) {
+          resumeWindow.location.href = resumeURL;
+        } else if (isResumeOpenCommand(command) && resumeURL) {
+          window.location.href = resumeURL;
+        } else if (resumeWindow) {
+          resumeWindow.close();
+        }
       } catch (err) {
+        if (resumeWindow) resumeWindow.close();
         if (err.name === "AbortError") {
           // cancelled via Ctrl+C — already handled above, nothing to print
         } else {
