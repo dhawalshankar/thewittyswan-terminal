@@ -1,63 +1,73 @@
 # deploy/README.md
 # GCP VM one-time setup
 
-The repository does not contain an existing systemd unit, service name,
-application directory, deploy user, binary name, or health endpoint. Before
-using this guide, replace every `TODO_FILL_*` value in
-`.github/workflows/deploy.yml` and `deploy/TODO_SERVICE_NAME.service`.
+The existing VM deployment confirms:
 
-The application listens on port 8080. It has no `/health`, `/healthz`, or
-other dedicated health endpoint, so leave `HEALTH_URL` as
-`TODO_FILL_HEALTH_URL` to use the systemd active-state check.
+- SSH deploy account: `dhawalmannu`
+- Application directory: `/home/dhawalmannu/thewittyswan-terminal`
+- Binary and systemd service: `thewittyswan-terminal`
+- Listen port: 8080
+- There is no `/health` or `/healthz` endpoint, so deployment checks the
+  systemd active state.
 
-## 1. Create the deploy user and application directory
+The checked-in systemd unit runs the application as a separate non-root
+`thewittyswan-terminal` system user. The deploy workflow ships only the binary.
+The app also serves the `static/` directory, so the existing directory must
+remain in place on the VM and be readable by the service user.
 
-Run on the VM as a user with sudo access. Set these shell variables to the
-same values used in the workflow and service unit:
+## 1. Create the service user and prepare the application directory
+
+Run on the VM as `dhawalmannu` (or another administrator with sudo access):
 
 ```sh
-export DEPLOY_USER="TODO_FILL_DEPLOY_USER"
-export APP_DIR="TODO_FILL_APP_DIR"
-export SERVICE_NAME="TODO_FILL_SERVICE_NAME"
-export BINARY_NAME="TODO_FILL_BINARY_NAME"
+export DEPLOY_USER="dhawalmannu"
+export APP_DIR="/home/dhawalmannu/thewittyswan-terminal"
+export SERVICE_NAME="thewittyswan-terminal"
+export SERVICE_USER="thewittyswan-terminal"
 
-sudo useradd --system --create-home --shell /bin/bash "$DEPLOY_USER"
-sudo mkdir -p "$APP_DIR"
-sudo chown "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR"
+sudo groupadd --system "$SERVICE_USER"
+sudo useradd --system --no-create-home --gid "$SERVICE_USER" --shell /usr/sbin/nologin "$SERVICE_USER"
 sudo usermod -aG systemd-journal "$DEPLOY_USER"
+sudo chgrp -R "$SERVICE_USER" "$APP_DIR"
+sudo chmod -R g+rX "$APP_DIR"
+sudo chmod 2755 "$APP_DIR"
 ```
+
+The existing `dhawalmannu` user owns the directory and uploads releases;
+setgid ensures uploaded files inherit the service group. The service user
+needs read/execute access to the binary and `static/` files, but no write
+access.
 
 ## 2. Install and enable systemd
 
-After replacing the placeholders in the unit file, copy it from a checked-out
-repository on the VM:
+From the checked-out repository on the VM:
 
 ```sh
-sudo cp "deploy/$SERVICE_NAME.service" "/etc/systemd/system/$SERVICE_NAME.service"
+sudo cp deploy/thewittyswan-terminal.service /etc/systemd/system/thewittyswan-terminal.service
 sudo systemctl daemon-reload
-sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl enable thewittyswan-terminal
 ```
 
 ## 3. Create the environment file
 
-Create the file on the VM only. Do not commit it:
+The current application has no required environment variables. Create the
+file on the VM only; do not commit it:
 
 ```sh
 sudo -u "$DEPLOY_USER" touch "$APP_DIR/.env"
 sudo chmod 600 "$APP_DIR/.env"
+sudo chown "$DEPLOY_USER:$SERVICE_USER" "$APP_DIR/.env"
 ```
 
-Add the service's runtime environment values using your preferred editor:
+Edit it on the VM if runtime environment values are added in the future:
 
 ```sh
 sudo -u "$DEPLOY_USER" vi "$APP_DIR/.env"
 ```
 
-The checked-in application currently has no required environment variables.
-
 ## 4. Allow only the required systemctl commands
 
-Create the sudoers drop-in without a heredoc:
+Create a sudoers drop-in without a heredoc:
 
 ```sh
 printf '%s\n' \
@@ -69,46 +79,41 @@ sudo visudo -cf "/etc/sudoers.d/$SERVICE_NAME-deploy"
 
 ## 5. Add the deploy SSH key
 
-Generate the key on Windows PowerShell, not on the VM:
+Generate a dedicated key on Windows PowerShell:
 
 ```powershell
 ssh-keygen -t ed25519 -C "thewittyswan-terminal-deploy" -f "$HOME\.ssh\thewittyswan-terminal-deploy"
 Get-Content "$HOME\.ssh\thewittyswan-terminal-deploy.pub"
 ```
 
-On the VM, add the printed public key to the deploy user's authorized keys:
+Add the displayed public key as one line to the existing `dhawalmannu`
+account's authorized keys on the VM:
 
 ```sh
-sudo -u "$DEPLOY_USER" mkdir -p "/home/$DEPLOY_USER/.ssh"
-sudo chmod 700 "/home/$DEPLOY_USER/.ssh"
-sudo -u "$DEPLOY_USER" touch "/home/$DEPLOY_USER/.ssh/authorized_keys"
-sudo chmod 600 "/home/$DEPLOY_USER/.ssh/authorized_keys"
-sudo chown -R "$DEPLOY_USER:$DEPLOY_USER" "/home/$DEPLOY_USER/.ssh"
-sudo -u "$DEPLOY_USER" vi "/home/$DEPLOY_USER/.ssh/authorized_keys"
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+touch "$HOME/.ssh/authorized_keys"
+chmod 600 "$HOME/.ssh/authorized_keys"
+vi "$HOME/.ssh/authorized_keys"
+ssh-keygen -lf "$HOME/.ssh/authorized_keys"
 ```
 
-Paste the public key as one line, save it, and verify:
-
-```sh
-sudo ssh-keygen -lf "/home/$DEPLOY_USER/.ssh/authorized_keys"
-```
-
-Store the private key in GitHub Actions with `gh` from Windows PowerShell:
+Store the secrets in GitHub Actions. Run from Windows PowerShell:
 
 ```powershell
 gh secret set SSH_HOST --repo DhawalShankar/thewittyswan-terminal
-gh secret set SSH_USER --repo DhawalShankar/thewittyswan-terminal --body "TODO_FILL_DEPLOY_USER"
+gh secret set SSH_USER --repo DhawalShankar/thewittyswan-terminal --body "dhawalmannu"
 Get-Content "$HOME\.ssh\thewittyswan-terminal-deploy" | gh secret set SSH_KEY --repo DhawalShankar/thewittyswan-terminal
-gh secret set SSH_PORT --repo DhawalShankar/thewittyswan-terminal --body "22"
 ```
 
-Set `SSH_HOST` interactively when prompted. It must not be written to this
-repository.
+`SSH_HOST` is prompted interactively; the VM address must not be written to
+this repository. `SSH_PORT` is optional and defaults to 22.
 
 ## 6. Allow SSH through the GCP firewall
 
-Run from a machine authenticated to the intended GCP project. Replace the
-placeholder values before running:
+From a machine authenticated to the intended GCP project, create a rule
+allowing TCP port 22 to the VM. Replace the three placeholders with the rule
+name, the VM's network tag, and a trusted source CIDR:
 
 ```powershell
 gcloud compute firewall-rules create TODO_FILL_SSH_FIREWALL_RULE `
@@ -122,39 +127,33 @@ decision.
 
 ## 7. First deployment
 
-After the placeholders are filled and the secrets are set, push the branch and
-open the pull request. Once the change is merged to `main`, CI success triggers
-the deployment workflow. To test it without waiting for a merge, use the
-workflow dispatch action in GitHub or run:
+After pushing the branch and opening the pull request, merge it to `main` for
+the normal CI-triggered deployment. To manually test the deployment workflow
+from the GitHub Actions UI, or from Windows PowerShell:
 
 ```powershell
 gh workflow run deploy.yml --repo DhawalShankar/thewittyswan-terminal
 ```
 
 The workflow builds a static Linux amd64 binary, uploads it as
-`BINARY_NAME.new`, atomically swaps it into place, restarts systemd, and
-validates the service.
+`thewittyswan-terminal.new`, atomically swaps it into place, restarts
+`thewittyswan-terminal`, and checks that systemd reports it active.
 
 ## 8. Manual rollback
 
 Run on the VM:
 
 ```sh
-cd "$APP_DIR"
-sudo systemctl stop "$SERVICE_NAME"
-mv -f "$BINARY_NAME" "$BINARY_NAME.failed"
-mv -f "$BINARY_NAME.prev" "$BINARY_NAME"
-chmod +x "$BINARY_NAME"
-sudo systemctl start "$SERVICE_NAME"
-sudo systemctl is-active "$SERVICE_NAME"
+cd /home/dhawalmannu/thewittyswan-terminal
+mv -f thewittyswan-terminal thewittyswan-terminal.failed
+mv -f thewittyswan-terminal.prev thewittyswan-terminal
+chmod +x thewittyswan-terminal
+sudo systemctl restart thewittyswan-terminal
+sudo systemctl is-active thewittyswan-terminal
 ```
 
 If the service is not active, inspect the logs:
 
 ```sh
-journalctl -u "$SERVICE_NAME" -n 30 --no-pager
+journalctl -u thewittyswan-terminal -n 30 --no-pager
 ```
-
-The deploy workflow uploads only the binary. The application also reads the
-checked-in `static/` directory at runtime, so provision that directory
-separately on the VM before the first deployment; it is not copied by CI/CD.

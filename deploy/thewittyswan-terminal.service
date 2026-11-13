@@ -1,0 +1,18 @@
+# deploy/thewittyswan-terminal.service
+[Unit]
+Description=thewittyswan terminal backend
+After=network.target
+
+[Service]
+Type=simple
+User=thewittyswan-terminal
+WorkingDirectory=/home/dhawalmannu/thewittyswan-terminal
+ExecStart=/home/dhawalmannu/thewittyswan-terminal/thewittyswan-terminal
+Restart=always
+RestartSec=3
+EnvironmentFile=/home/dhawalmannu/thewittyswan-terminal/.env
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

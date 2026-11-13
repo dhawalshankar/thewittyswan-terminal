@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
 
 env:
-  SERVICE_NAME: TODO_FILL_SERVICE_NAME
-  APP_DIR: TODO_FILL_APP_DIR
-  BINARY_NAME: TODO_FILL_BINARY_NAME
+  SERVICE_NAME: thewittyswan-terminal
+  APP_DIR: /home/dhawalmannu/thewittyswan-terminal
+  BINARY_NAME: thewittyswan-terminal
   HEALTH_URL: TODO_FILL_HEALTH_URL
 
 concurrency:
@@ -72,12 +72,14 @@ jobs:
             fi
             mv -f '${{ env.BINARY_NAME }}.new' '${{ env.BINARY_NAME }}'
             chmod +x '${{ env.BINARY_NAME }}'
-            sudo systemctl restart '${{ env.SERVICE_NAME }}'
+            health_ok=true
+            if ! sudo systemctl restart '${{ env.SERVICE_NAME }}'; then
+              health_ok=false
+            fi
             sleep 5
 
-            health_ok=true
             if [ '${{ env.HEALTH_URL }}' = 'TODO_FILL_HEALTH_URL' ]; then
-              [ "$(sudo systemctl is-active '${{ env.SERVICE_NAME }}')" = active ] || health_ok=false
+              [ "$(sudo systemctl is-active '${{ env.SERVICE_NAME }}' 2>/dev/null || true)" = active ] || health_ok=false
             else
               curl -fsS '${{ env.HEALTH_URL }}' >/dev/null || health_ok=false
             fi
@@ -87,7 +89,7 @@ jobs:
                 mv -f '${{ env.BINARY_NAME }}.prev' '${{ env.BINARY_NAME }}'
                 chmod +x '${{ env.BINARY_NAME }}'
               fi
-              sudo systemctl restart '${{ env.SERVICE_NAME }}'
+              sudo systemctl restart '${{ env.SERVICE_NAME }}' || true
               journalctl -u '${{ env.SERVICE_NAME }}' -n 30 --no-pager || true
               exit 1
             fi
