@@ -66,6 +66,8 @@ The terminal also exposes portfolio commands such as `about`, `resume`,
 `projects`, `skills`, `experience`, `education`, `achievements`, `timeline`,
 `github`, `leetcode`, and `contact`. Virtual filesystem commands are handled
 client-side by `static/js/terminal.js`.
+HTTP and HTTPS URLs printed in the terminal open in a new tab with Ctrl+click
+(tap the link on touch screens).
 
 ## Network and security commands
 

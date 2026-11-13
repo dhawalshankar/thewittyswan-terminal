@@ -79,7 +79,17 @@ sudo visudo -cf "/etc/sudoers.d/$SERVICE_NAME-deploy"
 
 ## 5. Add the deploy SSH key
 
-Generate a dedicated key on Windows PowerShell:
+The SSH key is a pair:
+
+- The **private key** (`thewittyswan-terminal-deploy`, no `.pub`) stays on your
+  PC and is stored as the GitHub Actions secret `SSH_KEY`. Never commit or
+  paste it into a workflow or README.
+- The **public key** (`thewittyswan-terminal-deploy.pub`) goes into
+  `/home/dhawalmannu/.ssh/authorized_keys` on the VM. It is safe to add to that
+  file; do not upload it as the `SSH_KEY` secret.
+
+Generate a deploy-only key on Windows PowerShell. When prompted for a
+passphrase, leave it empty so the unattended Actions SSH step can use it:
 
 ```powershell
 ssh-keygen -t ed25519 -C "thewittyswan-terminal-deploy" -f "$HOME\.ssh\thewittyswan-terminal-deploy"
@@ -98,16 +108,29 @@ vi "$HOME/.ssh/authorized_keys"
 ssh-keygen -lf "$HOME/.ssh/authorized_keys"
 ```
 
-Store the secrets in GitHub Actions. Run from Windows PowerShell:
+In GitHub, open **DhawalShankar/thewittyswan-terminal → Settings → Secrets and
+variables → Actions → New repository secret**. Add:
+
+| Secret | Value |
+| --- | --- |
+| `SSH_HOST` | The VM's external IP address or DNS name |
+| `SSH_USER` | `dhawalmannu` |
+| `SSH_KEY` | The contents of the private key file (without `.pub`) |
+| `SSH_PORT` | Optional; omit for the default `22` |
+
+You can set these from Windows PowerShell instead. `gh secret set SSH_HOST`
+accepts the host read by `Read-Host`; piping the private-key file sends it as
+the secret value. SSH uses this key pair, not your VM account password:
 
 ```powershell
-gh secret set SSH_HOST --repo DhawalShankar/thewittyswan-terminal
+$vmHost = Read-Host "VM external IP or DNS name"
+gh secret set SSH_HOST --repo DhawalShankar/thewittyswan-terminal --body $vmHost
 gh secret set SSH_USER --repo DhawalShankar/thewittyswan-terminal --body "dhawalmannu"
 Get-Content "$HOME\.ssh\thewittyswan-terminal-deploy" | gh secret set SSH_KEY --repo DhawalShankar/thewittyswan-terminal
+Remove-Variable vmHost
 ```
 
-`SSH_HOST` is prompted interactively; the VM address must not be written to
-this repository. `SSH_PORT` is optional and defaults to 22.
+Do not put the VM host, private key, or any secret values in repository files.
 
 ## 6. Allow SSH through the GCP firewall
 
@@ -125,19 +148,26 @@ gcloud compute firewall-rules create TODO_FILL_SSH_FIREWALL_RULE `
 Do not use `0.0.0.0/0` unless that exposure is an intentional, documented
 decision.
 
-## 7. First deployment
+## 7. How the CI/CD pipeline runs
 
-After pushing the branch and opening the pull request, merge it to `main` for
-the normal CI-triggered deployment. To manually test the deployment workflow
-from the GitHub Actions UI, or from Windows PowerShell:
+1. Push a branch and open a pull request to `main`. The **CI** workflow checks
+   formatting, modules, vet, lint, tests (when present), and build.
+2. Merge the pull request to `main`. A successful **CI** run automatically
+   starts **Deploy**, which builds the Linux binary and connects to the VM
+   using `SSH_HOST`, `SSH_USER`, `SSH_KEY`, and optionally `SSH_PORT`.
+3. **Deploy** uploads the new binary, restarts the service, and checks its
+   systemd status. It restores the prior binary and reports a failed run if
+   that check fails.
+
+To run **Deploy** manually, open **GitHub → Actions → Deploy → Run workflow**,
+or run this from Windows PowerShell:
 
 ```powershell
 gh workflow run deploy.yml --repo DhawalShankar/thewittyswan-terminal
 ```
 
-The workflow builds a static Linux amd64 binary, uploads it as
-`thewittyswan-terminal.new`, atomically swaps it into place, restarts
-`thewittyswan-terminal`, and checks that systemd reports it active.
+The deployment uses the VM setup in steps 1–6 above; do not run the old
+`deploy.sh` as part of this pipeline.
 
 ## 8. Manual rollback
 

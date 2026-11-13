@@ -46,6 +46,13 @@ const term = new Terminal({
   scrollback: 5000,
 });
 
+const webLinksAddon = new WebLinksAddon.WebLinksAddon((event, uri) => {
+  if (/^https?:\/\//i.test(uri)) {
+    window.open(uri, "_blank", "noopener,noreferrer");
+  }
+});
+term.loadAddon(webLinksAddon);
+
 const fitAddon = new FitAddon.FitAddon();
 term.loadAddon(fitAddon);
 term.open(terminalEl);
