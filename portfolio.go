@@ -39,29 +39,29 @@ type Project struct {
 }
 
 type Contact struct {
-    Email    string `json:"email"`
-    Phone    string `json:"phone"`
-    Location string `json:"location"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	Location string `json:"location"`
 }
 
 type GitHubProfile struct {
-    Username string `json:"username"`
-    URL       string `json:"url"`
+	Username string `json:"username"`
+	URL      string `json:"url"`
 }
 
 type LeetCodeProfile struct {
-    Username string `json:"username"`
-    URL       string `json:"url"`
+	Username string `json:"username"`
+	URL      string `json:"url"`
 }
 
 type LinkedInProfile struct {
-    URL string `json:"url"`
+	URL string `json:"url"`
 }
 
 type Profiles struct {
-    GitHub   GitHubProfile   `json:"github"`
-    LeetCode LeetCodeProfile `json:"leetcode"`
-    LinkedIn LinkedInProfile `json:"linkedin"`
+	GitHub   GitHubProfile   `json:"github"`
+	LeetCode LeetCodeProfile `json:"leetcode"`
+	LinkedIn LinkedInProfile `json:"linkedin"`
 }
 
 type TimelineEntry struct {
@@ -81,16 +81,16 @@ type Resume struct {
 }
 
 type Portfolio struct {
-    Profile    Profile         `json:"profile"`
-    Education  []Education     `json:"education"`
-    Experience []Experience    `json:"experience"`
-    Projects   []Project       `json:"projects"`
-    Skills     []string        `json:"skills"`
-    Contact    Contact         `json:"contact"`
-    Profiles   Profiles        `json:"profiles"`
-    Timeline   []TimelineEntry `json:"timeline"`
-	Achievements []Achievement `json:"achievements"`
-    Resume     Resume          `json:"resume"`
+	Profile      Profile         `json:"profile"`
+	Education    []Education     `json:"education"`
+	Experience   []Experience    `json:"experience"`
+	Projects     []Project       `json:"projects"`
+	Skills       []string        `json:"skills"`
+	Contact      Contact         `json:"contact"`
+	Profiles     Profiles        `json:"profiles"`
+	Timeline     []TimelineEntry `json:"timeline"`
+	Achievements []Achievement   `json:"achievements"`
+	Resume       Resume          `json:"resume"`
 }
 
 var (
