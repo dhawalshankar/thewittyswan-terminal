@@ -283,7 +283,7 @@ func handleHelp() string {
 	out = append(out, section("NETSEC BLOGS", []cmdEntry{
 		{"ls blog", "list all blog posts"},
 		{"ls <section>", "list posts in a section, e.g. ls netsec"},
-		{"cat <slug>", "read a blog post"},
+		{"cat <slug or title>", "read a blog post (multiword titles may be quoted)"},
 		{"grep <term>", "search blog posts by keyword"},
 	}))
 

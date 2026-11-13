@@ -216,12 +216,18 @@ func handleLs(args []string) string {
 
 func handleCat(args []string) string {
 	if len(args) == 0 {
-		return "usage: cat <slug>"
+		return "usage: cat <slug or title>"
 	}
-	target := args[0]
+	target := strings.TrimSpace(strings.Join(args, " "))
+	if len(target) >= 2 && (target[0] == '"' || target[0] == '\'') && target[0] == target[len(target)-1] {
+		target = strings.TrimSpace(target[1 : len(target)-1])
+	}
+	if target == "" {
+		return "usage: cat <slug or title>"
+	}
 
 	for _, p := range getPosts() {
-		if strings.Contains(p.Slug, target) || strings.EqualFold(p.Title, target) {
+		if strings.Contains(p.Slug, target) || strings.Contains(strings.ToLower(p.Title), strings.ToLower(target)) {
 			return fmt.Sprintf("%s\n\n%s", p.Title, p.Content)
 		}
 	}

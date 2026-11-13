@@ -46,7 +46,7 @@ persistence and the Swan assistant are planned, not current runtime features.
 | --- | --- |
 | `help`, `whoami` | Show available commands and terminal info |
 | `ls blog/`, `ls blog/netsec`, `ls blog/literature` | Browse posts from the live blog feed |
-| `cat <slug or title>` | Read a post |
+| `cat <slug or title>` | Read a post by slug or title; multiword titles may be quoted |
 | `grep <term>` | Search post titles and content |
 | `refresh` | Refresh the blog and portfolio feeds |
 | `about`, `resume`, `projects`, `skills`, `experience` | Explore portfolio details |
@@ -55,6 +55,7 @@ persistence and the Swan assistant are planned, not current runtime features.
 Virtual filesystem commands are handled client-side by
 [`static/js/terminal.js`](static/js/terminal.js). HTTP and HTTPS URLs in terminal
 output open in a new tab with Ctrl+click; on touch screens, tap the link.
+For example, `cat "Use AI only where it belongs"` reads the matching post.
 
 ### Network and security
 
