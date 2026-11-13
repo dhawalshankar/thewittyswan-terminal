@@ -12,10 +12,8 @@ on:
   workflow_dispatch:
 
 env:
-  SERVICE_NAME: thewittyswan-terminal
   APP_DIR: /home/dhawalmannu/thewittyswan-terminal
-  BINARY_NAME: thewittyswan-terminal
-  HEALTH_URL: TODO_FILL_HEALTH_URL
+  SERVICE_NAME: thewittyswan-terminal
 
 concurrency:
   group: deploy
@@ -25,38 +23,8 @@ jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build release binary
-        env:
-          CGO_ENABLED: 0
-          GOOS: linux
-          GOARCH: amd64
-        run: |
-          go build -trimpath -ldflags "-s -w" -o "$BINARY_NAME" .
-          cp "$BINARY_NAME" "$BINARY_NAME.new"
-
-      - name: Upload release binary
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          source: ${{ env.BINARY_NAME }}.new
-          target: ${{ env.APP_DIR }}
-
-      - name: Activate release and verify health
+      - name: Run existing VM deploy script
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -67,29 +35,5 @@ jobs:
           script: |
             set -e
             cd '${{ env.APP_DIR }}'
-            if [ -f '${{ env.BINARY_NAME }}' ]; then
-              cp -f '${{ env.BINARY_NAME }}' '${{ env.BINARY_NAME }}.prev'
-            fi
-            mv -f '${{ env.BINARY_NAME }}.new' '${{ env.BINARY_NAME }}'
-            chmod +x '${{ env.BINARY_NAME }}'
-            health_ok=true
-            if ! sudo systemctl restart '${{ env.SERVICE_NAME }}'; then
-              health_ok=false
-            fi
-            sleep 5
-
-            if [ '${{ env.HEALTH_URL }}' = 'TODO_FILL_HEALTH_URL' ]; then
-              [ "$(sudo systemctl is-active '${{ env.SERVICE_NAME }}' 2>/dev/null || true)" = active ] || health_ok=false
-            else
-              curl -fsS '${{ env.HEALTH_URL }}' >/dev/null || health_ok=false
-            fi
-
-            if [ "$health_ok" != true ]; then
-              if [ -f '${{ env.BINARY_NAME }}.prev' ]; then
-                mv -f '${{ env.BINARY_NAME }}.prev' '${{ env.BINARY_NAME }}'
-                chmod +x '${{ env.BINARY_NAME }}'
-              fi
-              sudo systemctl restart '${{ env.SERVICE_NAME }}' || true
-              journalctl -u '${{ env.SERVICE_NAME }}' -n 30 --no-pager || true
-              exit 1
-            fi
+            ./deploy.sh
+            sudo -n systemctl is-active --quiet '${{ env.SERVICE_NAME }}'
