@@ -31,12 +31,16 @@ sudo usermod -aG systemd-journal "$DEPLOY_USER"
 sudo chgrp -R "$SERVICE_USER" "$APP_DIR"
 sudo chmod -R g+rX "$APP_DIR"
 sudo chmod 2755 "$APP_DIR"
+sudo apt-get update
+sudo apt-get install -y acl
+sudo setfacl -m "u:$SERVICE_USER:--x" "/home/$DEPLOY_USER"
 ```
 
 The existing `dhawalmannu` user owns the directory and uploads releases;
 setgid ensures uploaded files inherit the service group. The service user
 needs read/execute access to the binary and `static/` files, but no write
-access.
+access. The ACL grants it execute-only access to the home directory so it can
+reach the app directory without being able to list the home directory.
 
 ## 2. Install and enable systemd
 
